@@ -20,7 +20,7 @@ class TextLocEnv(gym.Env):
     # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1)
     P_MASK = 0.5
 
-    def __init__(self, image_paths, true_bboxes, gpu_id=-1):
+    def __init__(self, image_paths, true_bboxes, gpu_id=-1, mode='train'):
         """
         :param image_paths: The paths to the individual images
         :param true_bboxes: The true bounding boxes for each image
@@ -46,6 +46,7 @@ class TextLocEnv(gym.Env):
         if type(image_paths) is not list: image_paths = [image_paths]
         self.image_paths = image_paths
         self.true_bboxes = true_bboxes
+        self.mode = mode
 
         self.seed()
 
@@ -262,7 +263,7 @@ class TextLocEnv(gym.Env):
         if self.box_size(new_box) < MAX_IMAGE_PIXELS:
             self.bbox = new_box
 
-    def reset(self, image_index=None, stay_on_image=False, mask_randomly=False):
+    def reset(self, image_index=None, stay_on_image=False):
         """Reset the environment to its initial state (the bounding box covers the entire image"""
         if not stay_on_image:
             self.history = self.create_empty_history()
@@ -283,7 +284,7 @@ class TextLocEnv(gym.Env):
         self.episode_masked_indices = []
 
         # Mask bounding boxes randomly with probability P_MASK
-        if mask_randomly:
+        if self.mode == 'train':
             num_unmasked = self.episode_num_true_bboxes
             for box in self.episode_true_bboxes:
                 is_masked = False
