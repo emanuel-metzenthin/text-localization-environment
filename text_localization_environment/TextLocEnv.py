@@ -47,7 +47,13 @@ class TextLocEnv(gym.Env):
 
         self.seed()
 
+        # Image for the current episode
         self.episode_image = Image.new("RGB", (256, 256))
+        # Bounding boxes for the image of the current episode
+        self.episode_true_bboxes = None
+        # The agent's current window represented as [x0, y0, x1, y1]
+        self.bbox = None
+
         self.reset()
 
     def seed(self, seed=None):
@@ -85,8 +91,6 @@ class TextLocEnv(gym.Env):
             self.iou = self.compute_best_iou()
 
         return reward
-
-
 
     def create_empty_history(self):
         flat_history = np.repeat([False], self.HISTORY_LENGTH * self.action_space.n)
@@ -250,11 +254,15 @@ class TextLocEnv(gym.Env):
 
         return self.state
 
-    def render(self, mode='human', return_as_file=False):
+    def render(self, mode='human', return_as_file=False, include_true_bboxes=False):
         """Render the current state"""
 
+        image = self.episode_image
+        if include_true_bboxes:
+            image = self.episode_image_with_true_bboxes
+
         if mode == 'human':
-            copy = self.episode_image.copy()
+            copy = image.copy()
             draw = ImageDraw.Draw(copy)
             draw.rectangle(self.bbox.tolist(), outline=(255, 255, 255))
             if return_as_file:
@@ -262,13 +270,15 @@ class TextLocEnv(gym.Env):
             copy.show()
             copy.close()
         elif mode is 'box':
+            # Renders what the agent currently sees
+            # i.e. the section of the image covered by the agent's current window (warped to standard size)
             warped = self.get_warped_bbox_contents()
             if return_as_file:
                 return warped
             warped.show()
             warped.close()
         elif mode is 'rgb_array':
-            copy = self.episode_image.copy()
+            copy = image.copy()
             draw = ImageDraw.Draw(copy)
             draw.rectangle(self.bbox.tolist(), outline=(255, 255, 255))
             return np.array(copy)
@@ -288,3 +298,21 @@ class TextLocEnv(gym.Env):
         line[action] = 1
 
         return line
+
+    @property
+    def episode_image_with_true_bboxes(self, true_bbox_color=(255, 0, 0)):
+        if not self.episode_true_bboxes:
+            return self.episode_image
+
+        copy = self.episode_image.copy()
+        draw = ImageDraw.Draw(copy)
+        for box in self.episode_true_bboxes:
+            draw.rectangle(box, outline=true_bbox_color)
+        return copy
+
+    @property
+    def episode_num_true_bboxes(self):
+        """Number of bounding boxes available in the current episode image."""
+        if not self.episode_true_bboxes:
+            return None
+        return len(self.episode_true_bboxes)
