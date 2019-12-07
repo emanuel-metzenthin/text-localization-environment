@@ -17,6 +17,8 @@ class TextLocEnv(gym.Env):
     ALPHA = 0.2
     # η: Reward of the trigger action
     ETA = 7.0
+    # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1)
+    P_MASK = 0.5
 
     def __init__(self, image_paths, true_bboxes, gpu_id=-1):
         """
@@ -49,8 +51,11 @@ class TextLocEnv(gym.Env):
 
         # Image for the current episode
         self.episode_image = Image.new("RGB", (256, 256))
-        # Bounding boxes for the image of the current episode
+
+        # Bounding boxes for the current episode image
         self.episode_true_bboxes = None
+        # List of indices of masked bounding boxes for the current episode image
+        self.episode_masked_indices = None
         # The agent's current window represented as [x0, y0, x1, y1]
         self.bbox = None
 
@@ -117,20 +122,37 @@ class TextLocEnv(gym.Env):
 
         return np.array([four_bbox, four_bbox, four_bbox])
 
-    def create_ior_mark(self):
+    @staticmethod
+    def to_standard_box(bbox):
         """
-        Creates an IoR (inhibition of return) mark that crosses out the current bounding box.
+        Transforms a given bounding box into a standardized representation.
+
+        :param bbox: Bounding box given as [(x0, y0), (x1, y1)] or [x0, y0, x1, y1]
+        :return: Bounding box represented as [x0, y0, x1, y1]
+        """
+        from typing import Iterable
+        if isinstance(bbox[0], Iterable):
+            bbox = [xy for p in bbox for xy in p]
+        print(bbox)
+        return bbox
+
+    def create_ior_mark(self, bbox):
+        """
+        Creates an IoR (inhibition of return) mark that crosses out the given bounding box.
         This is necessary to find multiple objects within one image
+
+        :param bbox: Bounding box given as [(x0, y0), (x1, y1)] or [x0, y0, x1, y1]
         """
         masker = ImageMasker(0)
+        bbox = self.to_standard_box(bbox)
 
-        center_height = round((self.bbox[3] + self.bbox[1]) / 2)
-        center_width = round((self.bbox[2] + self.bbox[0]) / 2)
-        height_frac = round((self.bbox[3] - self.bbox[1]) / 12)
-        width_frac = round((self.bbox[2] - self.bbox[0]) / 12)
+        center_height = round((bbox[3] + bbox[1]) / 2)
+        center_width = round((bbox[2] + bbox[0]) / 2)
+        height_frac = round((bbox[3] - bbox[1]) / 12)
+        width_frac = round((bbox[2] - bbox[0]) / 12)
 
-        horizontal_box = [self.bbox[0], center_height - height_frac, self.bbox[2], center_height + height_frac]
-        vertical_box = [center_width - width_frac, self.bbox[1], center_width + width_frac, self.bbox[3]]
+        horizontal_box = [bbox[0], center_height - height_frac, bbox[2], center_height + height_frac]
+        vertical_box = [center_width - width_frac, bbox[1], center_width + width_frac, bbox[3]]
 
         horizontal_box_four_corners = self.to_four_corners_array(horizontal_box)
         vertical_box_four_corners = self.to_four_corners_array(vertical_box)
@@ -151,10 +173,23 @@ class TextLocEnv(gym.Env):
         else:
             self.episode_image = Image.fromarray(new_img.astype(np.uint8))
 
+    @property
+    def episode_true_bboxes_unmasked(self):
+        """
+        Returns the bounding boxes in the current episode image that are not masked.
+        """
+        if not self.episode_true_bboxes:
+            return self.episode_true_bboxes
+        bboxes_unmasked = []
+        for bbox, is_masked in zip(self.episode_true_bboxes, self.episode_masked_indices):
+            if not is_masked:
+                bboxes_unmasked.append(bbox)
+        return bboxes_unmasked
+
     def compute_best_iou(self):
         max_iou = 0
 
-        for box in self.episode_true_bboxes:
+        for box in self.episode_true_bboxes_unmasked:
             max_iou = max(max_iou, self.compute_iou(box))
 
         return max_iou
@@ -206,7 +241,7 @@ class TextLocEnv(gym.Env):
 
     def trigger(self):
         self.done = True
-        #self.create_ior_mark()
+        #self.create_ior_mark(self.bbox)
 
     @staticmethod
     def box_size(box):
@@ -227,7 +262,7 @@ class TextLocEnv(gym.Env):
         if self.box_size(new_box) < MAX_IMAGE_PIXELS:
             self.bbox = new_box
 
-    def reset(self, image_index=None, stay_on_image=False):
+    def reset(self, image_index=None, stay_on_image=False, mask_randomly=False):
         """Reset the environment to its initial state (the bounding box covers the entire image"""
         if not stay_on_image:
             self.history = self.create_empty_history()
@@ -244,6 +279,20 @@ class TextLocEnv(gym.Env):
 
         if self.episode_image.mode != 'RGB':
             self.episode_image = self.episode_image.convert('RGB')
+
+        self.episode_masked_indices = []
+
+        # Mask bounding boxes randomly with probability P_MASK
+        if mask_randomly:
+            num_unmasked = self.episode_num_true_bboxes
+            for box in self.episode_true_bboxes:
+                is_masked = False
+                # Ensure at least 1 non-masked instance per observation
+                if num_unmasked > 1 and np.random.random() <= self.P_MASK:
+                    self.create_ior_mark(box)
+                    is_masked = True
+                    num_unmasked -= 1
+                self.episode_masked_indices.append(is_masked)
 
         self.bbox = np.array([0, 0, self.episode_image.width, self.episode_image.height])
         self.current_step = 0
