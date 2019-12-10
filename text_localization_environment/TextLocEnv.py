@@ -1,6 +1,5 @@
 import gym
 from gym import spaces
-import random
 from gym.utils import seeding
 from chainer.backends import cuda
 from PIL import Image, ImageDraw
@@ -30,7 +29,7 @@ class TextLocEnv(gym.Env):
         :type true_bboxes: numpy.ndarray
         :type gpu_id: int
         """
-        self.action_space = spaces.Discrete(9)
+        self.action_space = spaces.Discrete(10)
         self.action_set = {0: self.right,
                            1: self.left,
                            2: self.up,
@@ -39,10 +38,11 @@ class TextLocEnv(gym.Env):
                            5: self.smaller,
                            6: self.fatter,
                            7: self.taller,
-                           8: self.trigger
+                           8: self.trigger,
+                           9: self.terminate
                            }
-        # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
-        self.observation_space = spaces.Tuple([spaces.Box(low=0, high=256, shape=(224,224,3)), spaces.Box(low=0,high=1,shape=(10,9))])
+        # 224*224*3 (RGB image) + 10 * 10 (on-hot-enconded history) = 150628
+        self.observation_space = spaces.Tuple([spaces.Box(low=0, high=256, shape=(224,224,3)), spaces.Box(low=0,high=1,shape=(10,10))])
         self.gpu_id = gpu_id
         if type(image_paths) is not list: image_paths = [image_paths]
         self.image_paths = image_paths
@@ -94,6 +94,9 @@ class TextLocEnv(gym.Env):
 
         if self.action_set[action] == self.trigger:
             reward = 10 * self.ETA * self.iou - (self.current_step * self.DURATION_PENALTY)
+        elif self.action_set[action] == self.terminate:
+            num_unmasked = len(self.episode_true_bboxes_unmasked)
+            reward = -10 if num_unmasked > 0 else 1
         else:
             self.iou = self.compute_best_iou()
 
@@ -250,6 +253,9 @@ class TextLocEnv(gym.Env):
             self.create_ior_mark(self.bbox)
 
         self.reset_bbox()
+
+    def terminate(self):
+        self.done = True
 
     def closest_unmasked_true_bbox(self):
         max_iou = None
