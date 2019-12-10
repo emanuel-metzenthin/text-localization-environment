@@ -1,5 +1,4 @@
 import gym
-from matplotlib.pyplot import imshow
 from gym import spaces
 import random
 from gym.utils import seeding
@@ -325,9 +324,8 @@ class TextLocEnv(gym.Env):
             draw.rectangle(self.bbox.tolist(), outline=(255, 255, 255))
             if return_as_file:
                 return copy
-            imshow(np.asarray(copy))
-            #copy.show()
-            #copy.close()
+            copy.show()
+            copy.close()
         elif mode is 'box':
             # Renders what the agent currently sees
             # i.e. the section of the image covered by the agent's current window (warped to standard size)
