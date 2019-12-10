@@ -241,26 +241,30 @@ class TextLocEnv(gym.Env):
         self.adjust_bbox(np.array([0.5, 0, -0.5, 0]))
 
     def trigger(self):
-        #self.done = True
+        if self.mode == 'train':
+            index, bbox = self.closest_unmasked_true_bbox()
+            self.create_ior_mark(bbox)
+            self.episode_masked_indices.append(index)
+        else:
+            self.create_ior_mark(self.bbox)
+
+        self.reset_bbox()
+
+    def closest_unmasked_true_bbox(self):
         max_iou = 0
-        num_unmasked = len(self.episode_true_bboxes_unmasked)
+        best_box = None
+        best_box_index = None
 
-        if num_unmasked == 1:
-            self.done = True
-
-        best_box_index = random.randrange(num_unmasked)
- 
         for index, box in enumerate(self.episode_true_bboxes):
             if index in self.episode_masked_indices: 
                 continue
             iou = self.compute_iou(box)
             if iou > max_iou:
                 max_iou = iou
+                best_box = box
                 best_box_index = index
 
-        self.create_ior_mark(self.episode_true_bboxes_unmasked[best_box_index])
-        self.episode_masked_indices.append(index)
-        self.reset_bbox()
+        return (best_box_index, best_box)
 
     @staticmethod
     def box_size(box):
