@@ -242,16 +242,17 @@ class TextLocEnv(gym.Env):
 
     def trigger(self):
         if self.mode == 'train':
-            index, bbox = self.closest_unmasked_true_bbox()
-            self.create_ior_mark(bbox)
-            self.episode_masked_indices.append(index)
+            if len(self.episode_true_bboxes_unmasked) > 0:
+                index, bbox = self.closest_unmasked_true_bbox()
+                self.create_ior_mark(bbox)
+                self.episode_masked_indices.append(index)
         else:
             self.create_ior_mark(self.bbox)
 
         self.reset_bbox()
 
     def closest_unmasked_true_bbox(self):
-        max_iou = 0
+        max_iou = None
         best_box = None
         best_box_index = None
 
@@ -259,7 +260,7 @@ class TextLocEnv(gym.Env):
             if index in self.episode_masked_indices: 
                 continue
             iou = self.compute_iou(box)
-            if iou > max_iou:
+            if not max_iou or iou > max_iou:
                 max_iou = iou
                 best_box = box
                 best_box_index = index
