@@ -1,5 +1,7 @@
 import gym
+from matplotlib.pyplot import imshow
 from gym import spaces
+import random
 from gym.utils import seeding
 from chainer.backends import cuda
 from PIL import Image, ImageDraw
@@ -56,7 +58,7 @@ class TextLocEnv(gym.Env):
         # Bounding boxes for the current episode image
         self.episode_true_bboxes = None
         # List of indices of masked bounding boxes for the current episode image
-        self.episode_masked_indices = None
+        self.episode_masked_indices = []
         # The agent's current window represented as [x0, y0, x1, y1]
         self.bbox = None
 
@@ -134,7 +136,6 @@ class TextLocEnv(gym.Env):
         from typing import Iterable
         if isinstance(bbox[0], Iterable):
             bbox = [xy for p in bbox for xy in p]
-        print(bbox)
         return bbox
 
     def create_ior_mark(self, bbox):
@@ -179,12 +180,12 @@ class TextLocEnv(gym.Env):
         """
         Returns the bounding boxes in the current episode image that are not masked.
         """
-        if not self.episode_true_bboxes:
-            return self.episode_true_bboxes
         bboxes_unmasked = []
-        for bbox, is_masked in zip(self.episode_true_bboxes, self.episode_masked_indices):
-            if not is_masked:
-                bboxes_unmasked.append(bbox)
+
+        for index, bbox in enumerate(self.episode_true_bboxes):
+            is_masked = index in self.episode_masked_indices
+            if not is_masked: bboxes_unmasked.append(bbox)
+
         return bboxes_unmasked
 
     def compute_best_iou(self):
@@ -241,8 +242,26 @@ class TextLocEnv(gym.Env):
         self.adjust_bbox(np.array([0.5, 0, -0.5, 0]))
 
     def trigger(self):
-        self.done = True
-        #self.create_ior_mark(self.bbox)
+        #self.done = True
+        max_iou = 0
+        num_unmasked = len(self.episode_true_bboxes_unmasked)
+
+        if num_unmasked == 1:
+            self.done = True
+
+        best_box_index = random.randrange(num_unmasked)
+ 
+        for index, box in enumerate(self.episode_true_bboxes):
+            if index in self.episode_masked_indices: 
+                continue
+            iou = self.compute_iou(box)
+            if iou > max_iou:
+                max_iou = iou
+                best_box_index = index
+
+        self.create_ior_mark(self.episode_true_bboxes_unmasked[best_box_index])
+        self.episode_masked_indices.append(index)
+        self.reset_bbox()
 
     @staticmethod
     def box_size(box):
@@ -263,6 +282,9 @@ class TextLocEnv(gym.Env):
         if self.box_size(new_box) < MAX_IMAGE_PIXELS:
             self.bbox = new_box
 
+    def reset_bbox(self):
+        self.bbox = np.array([0, 0, self.episode_image.width, self.episode_image.height])
+
     def reset(self, image_index=None, stay_on_image=False):
         """Reset the environment to its initial state (the bounding box covers the entire image"""
         if not stay_on_image:
@@ -281,22 +303,8 @@ class TextLocEnv(gym.Env):
         if self.episode_image.mode != 'RGB':
             self.episode_image = self.episode_image.convert('RGB')
 
-        self.episode_masked_indices = []
-
-        # Mask bounding boxes randomly with probability P_MASK
-        if self.mode == 'train':
-            num_unmasked = self.episode_num_true_bboxes
-            for box in self.episode_true_bboxes:
-                is_masked = False
-                # Ensure at least 1 non-masked instance per observation
-                if num_unmasked > 1 and np.random.random() <= self.P_MASK:
-                    self.create_ior_mark(box)
-                    is_masked = True
-                    num_unmasked -= 1
-                self.episode_masked_indices.append(is_masked)
-
-        self.bbox = np.array([0, 0, self.episode_image.width, self.episode_image.height])
         self.current_step = 0
+        self.reset_bbox()
         self.state = self.compute_state()
         self.done = False
         self.iou = self.compute_best_iou()
@@ -317,8 +325,9 @@ class TextLocEnv(gym.Env):
             draw.rectangle(self.bbox.tolist(), outline=(255, 255, 255))
             if return_as_file:
                 return copy
-            copy.show()
-            copy.close()
+            imshow(np.asarray(copy))
+            #copy.show()
+            #copy.close()
         elif mode is 'box':
             # Renders what the agent currently sees
             # i.e. the section of the image covered by the agent's current window (warped to standard size)
