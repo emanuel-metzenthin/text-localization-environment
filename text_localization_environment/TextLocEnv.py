@@ -9,8 +9,6 @@ from text_localization_environment.ImageMasker import ImageMasker
 
 
 class TextLocEnv(gym.Env):
-    # TODO: janusch: max steps pro image (nicht nur episode)
-    # TODO: maybe introduce cross-episodic duration penalty to make allInstnacesFOundTrigger more appealing
     metadata = {'render.modes': ['human', 'rgb_array', 'box']}
 
     DURATION_PENALTY = 0.03
@@ -19,7 +17,7 @@ class TextLocEnv(gym.Env):
     ALPHA = 0.2
     # η: Reward of the trigger action
     ETA = 7.0
-    # Reward for trigger action
+    # Reward for next image trigger action
     ETA2 = 10.0
 
     def __init__(self, image_paths, true_bboxes, gpu_id=-1):
@@ -31,7 +29,6 @@ class TextLocEnv(gym.Env):
         :type true_bboxes: numpy.ndarray
         :type gpu_id: int
         """
-        print("Correct version of environment is used.")
         self.action_space = spaces.Discrete(9)
         self.action_set = {0: self.right,
                            1: self.left,
@@ -42,7 +39,7 @@ class TextLocEnv(gym.Env):
                            6: self.fatter,
                            7: self.taller,
                            8: self.trigger,
-                           9: self.allInstancesFoundTrigger
+                           9: self.next_image_trigger
                            }
         # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
         self.observation_space = spaces.Tuple([spaces.Box(low=0, high=256, shape=(224,224,3)), spaces.Box(low=0,high=1,shape=(10,9))])
@@ -59,6 +56,8 @@ class TextLocEnv(gym.Env):
         self.episode_true_bboxes = None
         # The agent's current window represented as [x0, y0, x1, y1]
         self.bbox = None
+
+        self.num_detected_texts = 0
 
         self.reset()
 
@@ -91,13 +90,8 @@ class TextLocEnv(gym.Env):
     def calculate_reward(self, action):
         reward = 0
 
-        if self.action_set[action] == self.allInstancesFoundTrigger:
-            reward = 10 * self.ETA2 * self.iou - (self.current_step * self.DURATION_PENALTY)
-
-            reward = reward * self.evaluate_detected_instances()
-            # TODO check how many bboxes are actually detected (penalize heavily if not all are detected; maybe
-            #  dependent on #detected/#overall)
-
+        if self.action_set[action] == self.next_image_trigger:
+             reward = 10 * self.ETA2 * self.evaluate_detected_instances() - (self.current_step * self.DURATION_PENALTY)
 
         if self.action_set[action] == self.trigger:
             reward = 10 * self.ETA * self.iou - (self.current_step * self.DURATION_PENALTY)
@@ -105,10 +99,6 @@ class TextLocEnv(gym.Env):
             self.iou = self.compute_best_iou()
 
         return reward
-
-    def evaluate_detected_instances(self):
-        # TODO
-        return 1.0
 
     def create_empty_history(self):
         flat_history = np.repeat([False], self.HISTORY_LENGTH * self.action_space.n)
@@ -224,13 +214,12 @@ class TextLocEnv(gym.Env):
 
     def trigger(self):
         self.done = True
-        self.create_ior_mark()
+        self.num_detected_texts += 1
+        #self.create_ior_mark()
 
-    def allInstancesFoundTrigger(self):
-        # TODO: modify reward function to account for this trigger (actually found all instances vs still instances
-        #  left in image)
+    # trigger that should be used when all text instances have been detected by the agent
+    def next_image_trigger(self):
         self.done = True
-        self.create_ior_mark()
         self.reset()
 
     @staticmethod
@@ -255,6 +244,7 @@ class TextLocEnv(gym.Env):
     def reset(self, image_index=None, stay_on_image=False):
         """Reset the environment to its initial state (the bounding box covers the entire image"""
         if not stay_on_image:
+            self.num_detected_texts = 0
             self.history = self.create_empty_history()
             self.episode_image.close()
 
@@ -341,3 +331,6 @@ class TextLocEnv(gym.Env):
         if not self.episode_true_bboxes:
             return None
         return len(self.episode_true_bboxes)
+
+    def evaluate_detected_instances(self):
+        return (self.num_detected_texts / len(self.episode_true_bboxes))
