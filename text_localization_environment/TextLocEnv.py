@@ -91,7 +91,10 @@ class TextLocEnv(gym.Env):
         reward = 0
 
         if self.action_set[action] == self.next_image_trigger:
-             reward = 10 * self.ETA2 * self.evaluate_detected_instances() - (self.current_step * self.DURATION_PENALTY)
+            if self.evaluate_detected_instances() < 1.0:
+                return -10
+            else:
+                return 10 * self.ETA2 * self.evaluate_detected_instances() - (self.current_step * self.DURATION_PENALTY)
 
         if self.action_set[action] == self.trigger:
             reward = 10 * self.ETA * self.iou - (self.current_step * self.DURATION_PENALTY)
