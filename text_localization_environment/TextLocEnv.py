@@ -55,12 +55,19 @@ class TextLocEnv(gym.Env):
         # Image for the current episode
         self.episode_image = Image.new("RGB", (256, 256))
 
-        # Bounding boxes for the current episode image
+        # Ground truth bounding boxes for the current episode image
         self.episode_true_bboxes = None
+        # Predicted bounding boxes for the current episode image
+        self.episode_pred_bboxes = None
+        # IoU values for each trigger in the current episode
+        self.episode_trigger_ious = None
         # List of indices of masked bounding boxes for the current episode image
         self.episode_masked_indices = []
         # The agent's current window represented as [x0, y0, x1, y1]
         self.bbox = None
+
+        # For registering a handler that will be executed once after a step
+        self.post_step_handler = None
 
         self.reset()
 
@@ -87,6 +94,11 @@ class TextLocEnv(gym.Env):
         self.history.pop()
 
         self.state = self.compute_state()
+
+        # Execute and remove any registered post-step handler
+        if self.post_step_handler is not None:
+            self.post_step_handler()
+            self.post_step_handler = None
 
         # Terminate episode after reaching step limit (if set)
         # Prevents the agent from running into an infinite loop
@@ -247,6 +259,11 @@ class TextLocEnv(gym.Env):
         self.adjust_bbox(np.array([0.5, 0, -0.5, 0]))
 
     def trigger(self):
+        self.episode_pred_bboxes.append(self.bbox)
+        # IoU values are only updated after trigger action is executed
+        # Therefore we need to track them lazily
+        self.post_step_handler = self._register_trigger_iou
+
         if self.mode == 'train':
             if len(self.episode_true_bboxes_unmasked) > 0:
                 index, bbox = self.closest_unmasked_true_bbox()
@@ -256,6 +273,9 @@ class TextLocEnv(gym.Env):
             self.create_ior_mark(self.bbox)
 
         self.reset_bbox()
+
+    def _register_trigger_iou(self):
+        self.episode_trigger_ious.append(self.iou)
 
     def closest_unmasked_true_bbox(self):
         max_iou = None
@@ -313,6 +333,8 @@ class TextLocEnv(gym.Env):
         if self.episode_image.mode != 'RGB':
             self.episode_image = self.episode_image.convert('RGB')
 
+        self.episode_pred_bboxes = []
+        self.episode_trigger_ious = []
         self.current_step = 0
         self.reset_bbox()
         self.state = self.compute_state()
