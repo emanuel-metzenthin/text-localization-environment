@@ -18,10 +18,13 @@ class TextLocEnv(gym.Env):
     ALPHA = 0.2
     # η: Reward of the trigger action
     ETA = 7.0
-    # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1)
+    # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1 during premasking)
     P_MASK = 0.5
 
-    def __init__(self, image_paths, true_bboxes, gpu_id=-1, mode='train', max_steps_per_image=200):
+    def __init__(self, image_paths, true_bboxes, gpu_id=-1,
+        playout_episode=False, premasking=True, mode='train',
+        max_steps_per_image=200
+    ):
         """
         :param image_paths: The paths to the individual images
         :param true_bboxes: The true bounding boxes for each image
@@ -47,7 +50,14 @@ class TextLocEnv(gym.Env):
         if type(image_paths) is not list: image_paths = [image_paths]
         self.image_paths = image_paths
         self.true_bboxes = true_bboxes
+        # Determines whether the agent is training or testing
+        # Optimizations can be applied during training that are not allowed for testing
         self.mode = mode
+        # Whether IoR markers will be placed upfront after loading the image
+        self.premasking = premasking
+        # Whether an episode terminates after a single trigger or is played out until the end
+        self.playout_episode = playout_episode
+        # Episodes will be terminated automatically after reaching max steps
         self.max_steps_per_image = max_steps_per_image
 
         self.seed()
@@ -189,13 +199,16 @@ class TextLocEnv(gym.Env):
 
         for index, bbox in enumerate(self.episode_true_bboxes):
             is_masked = index in self.episode_masked_indices
-            if not is_masked: bboxes_unmasked.append(bbox)
+            if not is_masked:
+                bboxes_unmasked.append(bbox)
 
         return bboxes_unmasked
 
     def compute_best_iou(self):
         max_iou = 0
 
+        # Only consider boxes that have not been masked yet
+        # Ensures that the agent is not rewarded for visiting the same location
         for box in self.episode_true_bboxes_unmasked:
             max_iou = max(max_iou, self.compute_iou(box))
 
@@ -247,14 +260,20 @@ class TextLocEnv(gym.Env):
         self.adjust_bbox(np.array([0.5, 0, -0.5, 0]))
 
     def trigger(self):
+        if not self.playout_episode:
+            # Terminate episode after first trigger action
+            self.done = True
+            return
+
+        # Otherwise play out the full episode
         if self.mode == 'train':
+            # Speed up training by masking closest true bbox
             if len(self.episode_true_bboxes_unmasked) > 0:
                 index, bbox = self.closest_unmasked_true_bbox()
                 self.create_ior_mark(bbox)
                 self.episode_masked_indices.append(index)
         else:
             self.create_ior_mark(self.bbox)
-
         self.reset_bbox()
 
     def closest_unmasked_true_bbox(self):
@@ -295,23 +314,32 @@ class TextLocEnv(gym.Env):
     def reset_bbox(self):
         self.bbox = np.array([0, 0, self.episode_image.width, self.episode_image.height])
 
-    def reset(self, image_index=None, stay_on_image=False):
+    def reset(self, image_index=None):
         """Reset the environment to its initial state (the bounding box covers the entire image"""
-        if not stay_on_image:
-            self.history = self.create_empty_history()
+        self.history = self.create_empty_history()
+        if self.episode_image is not None:
             self.episode_image.close()
 
-        if image_index is not None:
-            if not stay_on_image:
-                self.episode_image = Image.open(self.image_paths[image_index])
-                self.episode_true_bboxes = self.true_bboxes[image_index]
-        else:
-            random_index = self.np_random.randint(len(self.image_paths))
-            self.episode_image = Image.open(self.image_paths[random_index])
-            self.episode_true_bboxes = self.true_bboxes[random_index]
+        if image_index is None:
+            # Pick random next image if not specified otherwise
+            image_index = self.np_random.randint(len(self.image_paths))
+        self.episode_image = Image.open(self.image_paths[image_index])
+        self.episode_true_bboxes = self.true_bboxes[image_index]
 
         if self.episode_image.mode != 'RGB':
             self.episode_image = self.episode_image.convert('RGB')
+
+        self.episode_masked_indices = []
+
+        # Mask bounding boxes randomly with probability P_MASK
+        if self.mode == 'train' and self.premasking:
+            num_unmasked = self.episode_num_true_bboxes
+            for idx, box in enumerate(self.episode_true_bboxes):
+                # Ensure at least 1 non-masked instance per observation
+                if num_unmasked > 1 and np.random.random() <= self.P_MASK:
+                    self.create_ior_mark(box)
+                    self.episode_masked_indices.append(idx)
+                    num_unmasked -= 1
 
         self.current_step = 0
         self.reset_bbox()
