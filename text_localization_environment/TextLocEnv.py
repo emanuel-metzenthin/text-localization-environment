@@ -21,7 +21,7 @@ class TextLocEnv(gym.Env):
     # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1)
     P_MASK = 0.5
 
-    def __init__(self, image_paths, true_bboxes, gpu_id=-1, mode='train'):
+    def __init__(self, image_paths, true_bboxes, gpu_id=-1, mode='train', max_steps_per_image=200):
         """
         :param image_paths: The paths to the individual images
         :param true_bboxes: The true bounding boxes for each image
@@ -48,6 +48,7 @@ class TextLocEnv(gym.Env):
         self.image_paths = image_paths
         self.true_bboxes = true_bboxes
         self.mode = mode
+        self.max_steps_per_image = max_steps_per_image
 
         self.seed()
 
@@ -86,6 +87,11 @@ class TextLocEnv(gym.Env):
         self.history.pop()
 
         self.state = self.compute_state()
+
+        # Terminate episode after reaching step limit (if set)
+        # Prevents the agent from running into an infinite loop
+        if self.max_steps_per_image != -1 and self.current_step >= self.max_steps_per_image:
+            self.done = True
 
         return self.state, reward, self.done, {}
 
@@ -257,7 +263,7 @@ class TextLocEnv(gym.Env):
         best_box_index = None
 
         for index, box in enumerate(self.episode_true_bboxes):
-            if index in self.episode_masked_indices: 
+            if index in self.episode_masked_indices:
                 continue
             iou = self.compute_iou(box)
             if not max_iou or iou > max_iou:
