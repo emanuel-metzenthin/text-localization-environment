@@ -122,25 +122,6 @@ class TextLocEnv(gym.Env):
         return history.tolist()
 
     @staticmethod
-    def to_four_corners_array(two_bbox):
-        """
-        Creates an array of bounding boxes with four corners out of a bounding box with two corners, so
-        that the ImageMasker can be applied.
-
-        :param two_bbox: Bounding box with two points, top left and bottom right
-
-        :return: An array of bounding boxes that corresponds to the requirements of the ImageMasker
-        """
-        top_left = np.array([two_bbox[0], two_bbox[1]], dtype=np.int32)
-        bottom_left = np.array([two_bbox[0], two_bbox[3]], dtype=np.int32)
-        top_right = np.array([two_bbox[2], two_bbox[1]], dtype=np.int32)
-        bottom_right = np.array([two_bbox[2], two_bbox[3]], dtype=np.int32)
-
-        four_bbox = np.array([bottom_right, bottom_left, top_left, top_right])
-
-        return np.array([four_bbox, four_bbox, four_bbox])
-
-    @staticmethod
     def to_standard_box(bbox):
         """
         Transforms a given bounding box into a standardized representation.
@@ -160,35 +141,9 @@ class TextLocEnv(gym.Env):
 
         :param bbox: Bounding box given as [(x0, y0), (x1, y1)] or [x0, y0, x1, y1]
         """
-        masker = ImageMasker(0)
         bbox = self.to_standard_box(bbox)
-
-        center_height = round((bbox[3] + bbox[1]) / 2)
-        center_width = round((bbox[2] + bbox[0]) / 2)
-        height_frac = round((bbox[3] - bbox[1]) / 12)
-        width_frac = round((bbox[2] - bbox[0]) / 12)
-
-        horizontal_box = [bbox[0], center_height - height_frac, bbox[2], center_height + height_frac]
-        vertical_box = [center_width - width_frac, bbox[1], center_width + width_frac, bbox[3]]
-
-        horizontal_box_four_corners = self.to_four_corners_array(horizontal_box)
-        vertical_box_four_corners = self.to_four_corners_array(vertical_box)
-
-        array_module = np
-
-        if self.gpu_id != -1:
-            array_module = cuda.cupy
-            horizontal_box_four_corners = cuda.to_gpu(horizontal_box_four_corners, self.gpu_id)
-            vertical_box_four_corners = cuda.to_gpu(vertical_box_four_corners, self.gpu_id)
-
-        new_img = array_module.array(self.episode_image, dtype=np.int32)
-        new_img = masker.mask_array(new_img, horizontal_box_four_corners, array_module)
-        new_img = masker.mask_array(new_img, vertical_box_four_corners, array_module)
-
-        if self.gpu_id != -1:
-            self.episode_image = Image.fromarray(cuda.to_cpu(new_img).astype(np.uint8))
-        else:
-            self.episode_image = Image.fromarray(new_img.astype(np.uint8))
+        masker = ImageMasker(self.episode_image, bbox)
+        self.episode_image = masker.mask()
 
     @property
     def episode_true_bboxes_unmasked(self):
