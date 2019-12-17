@@ -20,6 +20,8 @@ class TextLocEnv(gym.Env):
     ETA = 7.0
     # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1 during premasking)
     P_MASK = 0.5
+    # Reward for next image trigger action
+    ETA2 = 10.0
 
     def __init__(self, image_paths, true_bboxes, gpu_id=-1,
         playout_episode=False, premasking=True, mode='train',
@@ -42,7 +44,8 @@ class TextLocEnv(gym.Env):
                            5: self.smaller,
                            6: self.fatter,
                            7: self.taller,
-                           8: self.trigger
+                           8: self.trigger,
+                           9: self.next_image_trigger
                            }
         # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
         self.observation_space = spaces.Tuple([spaces.Box(low=0, high=256, shape=(224,224,3)), spaces.Box(low=0,high=1,shape=(10,9))])
@@ -71,6 +74,8 @@ class TextLocEnv(gym.Env):
         self.episode_masked_indices = []
         # The agent's current window represented as [x0, y0, x1, y1]
         self.bbox = None
+
+        self.num_detected_texts = 0
 
         self.reset()
 
@@ -107,6 +112,12 @@ class TextLocEnv(gym.Env):
 
     def calculate_reward(self, action):
         reward = 0
+
+        if self.action_set[action] == self.next_image_trigger:
+            if self.evaluate_detected_instances() < 1.0:
+                return -10
+            else:
+                return 10 * self.ETA2 - (self.current_step * self.DURATION_PENALTY)
 
         if self.action_set[action] == self.trigger:
             reward = 10 * self.ETA * self.iou - (self.current_step * self.DURATION_PENALTY)
@@ -260,6 +271,7 @@ class TextLocEnv(gym.Env):
         self.adjust_bbox(np.array([0.5, 0, -0.5, 0]))
 
     def trigger(self):
+        self.num_detected_texts += 1
         if not self.playout_episode:
             # Terminate episode after first trigger action
             self.done = True
@@ -292,6 +304,11 @@ class TextLocEnv(gym.Env):
 
         return (best_box_index, best_box)
 
+    # trigger that should be used when all text instances have been detected by the agent
+    def next_image_trigger(self):
+        self.done = True
+        self.reset()
+
     @staticmethod
     def box_size(box):
         width = box[2] - box[0]
@@ -315,7 +332,9 @@ class TextLocEnv(gym.Env):
         self.bbox = np.array([0, 0, self.episode_image.width, self.episode_image.height])
 
     def reset(self, image_index=None):
-        """Reset the environment to its initial state (the bounding box covers the entire image"""
+        """Reset the environment to its initial state (the bounding box covers the entire image)"""
+        self.num_detected_texts = 0
+
         self.history = self.create_empty_history()
         if self.episode_image is not None:
             self.episode_image.close()
@@ -412,3 +431,6 @@ class TextLocEnv(gym.Env):
         if not self.episode_true_bboxes:
             return None
         return len(self.episode_true_bboxes)
+
+    def evaluate_detected_instances(self):
+        return (self.num_detected_texts / len(self.episode_true_bboxes))
