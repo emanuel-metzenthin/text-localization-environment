@@ -227,24 +227,24 @@ class TextLocEnv(gym.Env):
         self.adjust_bbox(np.array([0.5, 0, -0.5, 0]))
 
     def trigger(self):
+        self.episode_pred_bboxes.append(self.bbox)
+        # IoU values are only updated after trigger action is executed
+        # Therefore we need to track them lazily
+        self.post_step_handler = self._register_trigger_iou
+
         if not self.playout_episode:
             # Terminate episode after first trigger action
             self.done = True
             return
 
-        # Otherwise play out the full episode
-        self.episode_pred_bboxes.append(self.bbox)
-        # IoU values are only updated after trigger action is executed
-        # Therefore we need to track them lazily
-        self.post_step_handler = self._register_trigger_iou
         if self.mode == 'train':
-            # Speed up training by masking closest true bbox
             if len(self.episode_true_bboxes_unmasked) > 0:
                 index, bbox = self.closest_unmasked_true_bbox()
                 self.create_ior_mark(bbox)
                 self.episode_masked_indices.append(index)
         else:
             self.create_ior_mark(self.bbox)
+
         self.reset_bbox()
 
     def _register_trigger_iou(self):
