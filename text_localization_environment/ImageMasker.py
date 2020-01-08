@@ -27,11 +27,11 @@ class ImageMasker:
     def cross(self, color=(0, 0, 0)):
         draw = ImageDraw.Draw(self.image)
 
-        x0, y0 = self.bbox[0]
-        x1, y1 = self.bbox[1]
+        x0, y0 = self.bbox[0], self.bbox[1]
+        x1, y1 = self.bbox[2], self.bbox[3]
         ym = y0 + (y1 - y0) / 2
         xm = x0 + (x1 - x0) / 2
-        
+
         cross_height = (y1 - y0) / 2
         cross_width = (x1 - x0) / 2
 
@@ -52,8 +52,8 @@ class ImageMasker:
         kernel = self._gauss_kernel(kernel_size, nsig)
         img = np.array(self.image, dtype=np.int32) / 255.0
 
-        for y in range(self.bbox[0][1], self.bbox[1][1]):
-            for x in range(self.bbox[0][0], self.bbox[1][0]):
+        for y in range(self.bbox[1], self.bbox[3]):
+            for x in range(self.bbox[0], self.bbox[2]):
                 acc = np.array([0.0, 0.0, 0.0])
 
                 for k_y, k_row in enumerate(kernel):
@@ -66,6 +66,6 @@ class ImageMasker:
                 img[y][x] = acc
 
         return Image.fromarray((img * 255.0).astype(np.uint8))
-        
+
     def mask(self):
         return self.strategy()
