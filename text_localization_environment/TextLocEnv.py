@@ -43,7 +43,7 @@ class TextLocEnv(gym.Env):
         self.gpu_id = gpu_id
         if type(image_paths) is not list: image_paths = [image_paths]
         self.image_paths = image_paths
-        self.true_bboxes = true_bboxes
+        self.true_bboxes = [[TextLocEnv.to_standard_box(b) for b in bboxes] for bboxes in true_bboxes]
 
         self.seed()
 
@@ -164,16 +164,16 @@ class TextLocEnv(gym.Env):
         intersection = self.compute_intersection(other_bbox)
 
         area_1 = (self.bbox[2] - self.bbox[0]) * (self.bbox[3] - self.bbox[1])
-        area_2 = (other_bbox[1][0] - other_bbox[0][0]) * (other_bbox[1][1] - other_bbox[0][1])
+        area_2 = (other_bbox[2] - other_bbox[0]) * (other_bbox[3] - other_bbox[1])
         union = area_1 + area_2 - intersection
 
         return intersection / union
 
     def compute_intersection(self, other_bbox):
-        left = max(self.bbox[0], other_bbox[0][0])
-        top = max(self.bbox[1], other_bbox[0][1])
-        right = min(self.bbox[2], other_bbox[1][0])
-        bottom = min(self.bbox[3], other_bbox[1][1])
+        left = max(self.bbox[0], other_bbox[0])
+        top = max(self.bbox[1], other_bbox[1])
+        right = min(self.bbox[2], other_bbox[2])
+        bottom = min(self.bbox[3], other_bbox[3])
 
         if right < left or bottom < top:
             return 0
