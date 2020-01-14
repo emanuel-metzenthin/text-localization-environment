@@ -307,7 +307,7 @@ class TextLocEnv(gym.Env):
     # trigger that should be used when all text instances have been detected by the agent
     def next_image_trigger(self):
         self.done = True
-        self.reset()
+        # self.reset()
 
     @staticmethod
     def box_size(box):
