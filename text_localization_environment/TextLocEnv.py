@@ -1,5 +1,6 @@
 import gym
 from gym import spaces
+import random
 from gym.utils import seeding
 from chainer.backends import cuda
 from PIL import Image, ImageDraw
@@ -17,8 +18,13 @@ class TextLocEnv(gym.Env):
     ALPHA = 0.2
     # η: Reward of the trigger action
     ETA = 7.0
+    # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1 during premasking)
+    P_MASK = 0.5
 
-    def __init__(self, image_paths, true_bboxes, gpu_id=-1):
+    def __init__(self, image_paths, true_bboxes, gpu_id=-1,
+        playout_episode=False, premasking=True, mode='train',
+        max_steps_per_image=200
+    ):
         """
         :param image_paths: The paths to the individual images
         :param true_bboxes: The true bounding boxes for each image
@@ -43,16 +49,35 @@ class TextLocEnv(gym.Env):
         self.gpu_id = gpu_id
         if type(image_paths) is not list: image_paths = [image_paths]
         self.image_paths = image_paths
-        self.true_bboxes = true_bboxes
+        self.true_bboxes = [[TextLocEnv.to_standard_box(b) for b in bboxes] for bboxes in true_bboxes]
+        # Determines whether the agent is training or testing
+        # Optimizations can be applied during training that are not allowed for testing
+        self.mode = mode
+        # Whether IoR markers will be placed upfront after loading the image
+        self.premasking = premasking
+        # Whether an episode terminates after a single trigger or is played out until the end
+        self.playout_episode = playout_episode
+        # Episodes will be terminated automatically after reaching max steps
+        self.max_steps_per_image = max_steps_per_image
 
         self.seed()
 
         # Image for the current episode
         self.episode_image = Image.new("RGB", (256, 256))
-        # Bounding boxes for the image of the current episode
+
+        # Ground truth bounding boxes for the current episode image
         self.episode_true_bboxes = None
+        # Predicted bounding boxes for the current episode image
+        self.episode_pred_bboxes = None
+        # IoU values for each trigger in the current episode
+        self.episode_trigger_ious = None
+        # List of indices of masked bounding boxes for the current episode image
+        self.episode_masked_indices = []
         # The agent's current window represented as [x0, y0, x1, y1]
         self.bbox = None
+
+        # For registering a handler that will be executed once after a step
+        self.post_step_handler = None
 
         self.reset()
 
@@ -80,6 +105,16 @@ class TextLocEnv(gym.Env):
 
         self.state = self.compute_state()
 
+        # Execute and remove any registered post-step handler
+        if self.post_step_handler is not None:
+            self.post_step_handler()
+            self.post_step_handler = None
+
+        # Terminate episode after reaching step limit (if set)
+        # Prevents the agent from running into an infinite loop
+        if self.max_steps_per_image != -1 and self.current_step >= self.max_steps_per_image:
+            self.done = True
+
         return self.state, reward, self.done, {}
 
     def calculate_reward(self, action):
@@ -99,62 +134,49 @@ class TextLocEnv(gym.Env):
         return history.tolist()
 
     @staticmethod
-    def to_four_corners_array(two_bbox):
+    def to_standard_box(bbox):
         """
-        Creates an array of bounding boxes with four corners out of a bounding box with two corners, so
-        that the ImageMasker can be applied.
+        Transforms a given bounding box into a standardized representation.
 
-        :param two_bbox: Bounding box with two points, top left and bottom right
-
-        :return: An array of bounding boxes that corresponds to the requirements of the ImageMasker
+        :param bbox: Bounding box given as [(x0, y0), (x1, y1)] or [x0, y0, x1, y1]
+        :return: Bounding box represented as [x0, y0, x1, y1]
         """
-        top_left = np.array([two_bbox[0], two_bbox[1]], dtype=np.int32)
-        bottom_left = np.array([two_bbox[0], two_bbox[3]], dtype=np.int32)
-        top_right = np.array([two_bbox[2], two_bbox[1]], dtype=np.int32)
-        bottom_right = np.array([two_bbox[2], two_bbox[3]], dtype=np.int32)
+        from typing import Iterable
+        if isinstance(bbox[0], Iterable):
+            bbox = [xy for p in bbox for xy in p]
+        return bbox
 
-        four_bbox = np.array([bottom_right, bottom_left, top_left, top_right])
-
-        return np.array([four_bbox, four_bbox, four_bbox])
-
-    def create_ior_mark(self):
+    def create_ior_mark(self, bbox):
         """
-        Creates an IoR (inhibition of return) mark that crosses out the current bounding box.
+        Creates an IoR (inhibition of return) mark that crosses out the given bounding box.
         This is necessary to find multiple objects within one image
+
+        :param bbox: Bounding box given as [(x0, y0), (x1, y1)] or [x0, y0, x1, y1]
         """
-        masker = ImageMasker(0)
+        bbox = self.to_standard_box(bbox)
+        masker = ImageMasker(self.episode_image, bbox)
+        self.episode_image = masker.mask()
 
-        center_height = round((self.bbox[3] + self.bbox[1]) / 2)
-        center_width = round((self.bbox[2] + self.bbox[0]) / 2)
-        height_frac = round((self.bbox[3] - self.bbox[1]) / 12)
-        width_frac = round((self.bbox[2] - self.bbox[0]) / 12)
+    @property
+    def episode_true_bboxes_unmasked(self):
+        """
+        Returns the bounding boxes in the current episode image that are not masked.
+        """
+        bboxes_unmasked = []
 
-        horizontal_box = [self.bbox[0], center_height - height_frac, self.bbox[2], center_height + height_frac]
-        vertical_box = [center_width - width_frac, self.bbox[1], center_width + width_frac, self.bbox[3]]
+        for index, bbox in enumerate(self.episode_true_bboxes):
+            is_masked = index in self.episode_masked_indices
+            if not is_masked:
+                bboxes_unmasked.append(bbox)
 
-        horizontal_box_four_corners = self.to_four_corners_array(horizontal_box)
-        vertical_box_four_corners = self.to_four_corners_array(vertical_box)
-
-        array_module = np
-
-        if self.gpu_id != -1:
-            array_module = cuda.cupy
-            horizontal_box_four_corners = cuda.to_gpu(horizontal_box_four_corners, self.gpu_id)
-            vertical_box_four_corners = cuda.to_gpu(vertical_box_four_corners, self.gpu_id)
-
-        new_img = array_module.array(self.episode_image, dtype=np.int32)
-        new_img = masker.mask_array(new_img, horizontal_box_four_corners, array_module)
-        new_img = masker.mask_array(new_img, vertical_box_four_corners, array_module)
-
-        if self.gpu_id != -1:
-            self.episode_image = Image.fromarray(cuda.to_cpu(new_img).astype(np.uint8))
-        else:
-            self.episode_image = Image.fromarray(new_img.astype(np.uint8))
+        return bboxes_unmasked
 
     def compute_best_iou(self):
         max_iou = 0
 
-        for box in self.episode_true_bboxes:
+        # Only consider boxes that have not been masked yet
+        # Ensures that the agent is not rewarded for visiting the same location
+        for box in self.episode_true_bboxes_unmasked:
             max_iou = max(max_iou, self.compute_iou(box))
 
         return max_iou
@@ -164,16 +186,16 @@ class TextLocEnv(gym.Env):
         intersection = self.compute_intersection(other_bbox)
 
         area_1 = (self.bbox[2] - self.bbox[0]) * (self.bbox[3] - self.bbox[1])
-        area_2 = (other_bbox[1][0] - other_bbox[0][0]) * (other_bbox[1][1] - other_bbox[0][1])
+        area_2 = (other_bbox[2] - other_bbox[0]) * (other_bbox[3] - other_bbox[1])
         union = area_1 + area_2 - intersection
 
         return intersection / union
 
     def compute_intersection(self, other_bbox):
-        left = max(self.bbox[0], other_bbox[0][0])
-        top = max(self.bbox[1], other_bbox[0][1])
-        right = min(self.bbox[2], other_bbox[1][0])
-        bottom = min(self.bbox[3], other_bbox[1][1])
+        left = max(self.bbox[0], other_bbox[0])
+        top = max(self.bbox[1], other_bbox[1])
+        right = min(self.bbox[2], other_bbox[2])
+        bottom = min(self.bbox[3], other_bbox[3])
 
         if right < left or bottom < top:
             return 0
@@ -205,8 +227,44 @@ class TextLocEnv(gym.Env):
         self.adjust_bbox(np.array([0.5, 0, -0.5, 0]))
 
     def trigger(self):
-        self.done = True
-        #self.create_ior_mark()
+        self.episode_pred_bboxes.append(self.bbox)
+        # IoU values are only updated after trigger action is executed
+        # Therefore we need to track them lazily
+        self.post_step_handler = self._register_trigger_iou
+
+        if not self.playout_episode:
+            # Terminate episode after first trigger action
+            self.done = True
+            return
+
+        if self.mode == 'train':
+            if len(self.episode_true_bboxes_unmasked) > 0:
+                index, bbox = self.closest_unmasked_true_bbox()
+                self.create_ior_mark(bbox)
+                self.episode_masked_indices.append(index)
+        else:
+            self.create_ior_mark(self.bbox)
+
+        self.reset_bbox()
+
+    def _register_trigger_iou(self):
+        self.episode_trigger_ious.append(self.iou)
+
+    def closest_unmasked_true_bbox(self):
+        max_iou = None
+        best_box = None
+        best_box_index = None
+
+        for index, box in enumerate(self.episode_true_bboxes):
+            if index in self.episode_masked_indices:
+                continue
+            iou = self.compute_iou(box)
+            if not max_iou or iou > max_iou:
+                max_iou = iou
+                best_box = box
+                best_box_index = index
+
+        return (best_box_index, best_box)
 
     @staticmethod
     def box_size(box):
@@ -227,26 +285,40 @@ class TextLocEnv(gym.Env):
         if self.box_size(new_box) < MAX_IMAGE_PIXELS:
             self.bbox = new_box
 
-    def reset(self, image_index=None, stay_on_image=False):
+    def reset_bbox(self):
+        self.bbox = np.array([0, 0, self.episode_image.width, self.episode_image.height])
+
+    def reset(self, image_index=None):
         """Reset the environment to its initial state (the bounding box covers the entire image"""
-        if not stay_on_image:
-            self.history = self.create_empty_history()
+        self.history = self.create_empty_history()
+        if self.episode_image is not None:
             self.episode_image.close()
 
-        if image_index is not None:
-            if not stay_on_image:
-                self.episode_image = Image.open(self.image_paths[image_index])
-                self.episode_true_bboxes = self.true_bboxes[image_index]
-        else:
-            random_index = self.np_random.randint(len(self.image_paths))
-            self.episode_image = Image.open(self.image_paths[random_index])
-            self.episode_true_bboxes = self.true_bboxes[random_index]
+        if image_index is None:
+            # Pick random next image if not specified otherwise
+            image_index = self.np_random.randint(len(self.image_paths))
+        self.episode_image = Image.open(self.image_paths[image_index])
+        self.episode_true_bboxes = self.true_bboxes[image_index]
 
         if self.episode_image.mode != 'RGB':
             self.episode_image = self.episode_image.convert('RGB')
 
-        self.bbox = np.array([0, 0, self.episode_image.width, self.episode_image.height])
+        self.episode_masked_indices = []
+
+        # Mask bounding boxes randomly with probability P_MASK
+        if self.mode == 'train' and self.premasking:
+            num_unmasked = self.episode_num_true_bboxes
+            for idx, box in enumerate(self.episode_true_bboxes):
+                # Ensure at least 1 non-masked instance per observation
+                if num_unmasked > 1 and np.random.random() <= self.P_MASK:
+                    self.create_ior_mark(box)
+                    self.episode_masked_indices.append(idx)
+                    num_unmasked -= 1
+
+        self.episode_pred_bboxes = []
+        self.episode_trigger_ious = []
         self.current_step = 0
+        self.reset_bbox()
         self.state = self.compute_state()
         self.done = False
         self.iou = self.compute_best_iou()
