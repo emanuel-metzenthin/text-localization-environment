@@ -7,6 +7,7 @@ from PIL import Image, ImageDraw
 from PIL.Image import LANCZOS, MAX_IMAGE_PIXELS
 import numpy as np
 from text_localization_environment.ImageMasker import ImageMasker
+from text_localization_environment.iou import area, intersection, intersection_over_union
 
 
 class TextLocEnv(gym.Env):
@@ -121,11 +122,21 @@ class TextLocEnv(gym.Env):
         reward = 0
 
         if self.action_set[action] == self.trigger:
-            reward = 10 * self.ETA * self.iou - (self.current_step * self.DURATION_PENALTY)
+            tosf = self._calculate_tosf()
+            time_penalty = self.current_step * self.DURATION_PENALTY
+            reward = 10 * self.ETA * self.iou * tosf - time_penalty
         else:
             self.iou = self.compute_best_iou()
 
         return reward
+
+    def _calculate_tosf(self):
+        """
+        True overlap scaling factor determines how much of the true bounding
+        box is overlapped by the predicted bounding box on a scale from [0,1].
+        """
+        _, closest_bbox = self.closest_unmasked_true_bbox()
+        return intersection(self.bbox, closest_bbox) / area(closest_bbox)
 
     def create_empty_history(self):
         flat_history = np.repeat([False], self.HISTORY_LENGTH * self.action_space.n)
@@ -182,25 +193,8 @@ class TextLocEnv(gym.Env):
         return max_iou
 
     def compute_iou(self, other_bbox):
-        """Computes the intersection over union of the argument and the current bounding box."""
-        intersection = self.compute_intersection(other_bbox)
-
-        area_1 = (self.bbox[2] - self.bbox[0]) * (self.bbox[3] - self.bbox[1])
-        area_2 = (other_bbox[2] - other_bbox[0]) * (other_bbox[3] - other_bbox[1])
-        union = area_1 + area_2 - intersection
-
-        return intersection / union
-
-    def compute_intersection(self, other_bbox):
-        left = max(self.bbox[0], other_bbox[0])
-        top = max(self.bbox[1], other_bbox[1])
-        right = min(self.bbox[2], other_bbox[2])
-        bottom = min(self.bbox[3], other_bbox[3])
-
-        if right < left or bottom < top:
-            return 0
-
-        return (right - left) * (bottom - top)
+        """Computes the IoU of the current bounding box with the given one."""
+        return intersection_over_union(self.bbox, other_bbox)
 
     def up(self):
         self.adjust_bbox(np.array([0, -1, 0, -1]))
