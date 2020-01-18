@@ -52,7 +52,7 @@ class TextLocEnv(gym.Env):
         self.gpu_id = gpu_id
         if type(image_paths) is not list: image_paths = [image_paths]
         self.image_paths = image_paths
-        self.true_bboxes = true_bboxes
+        self.true_bboxes = [[TextLocEnv.to_standard_box(b) for b in bboxes] for bboxes in true_bboxes]
         # Determines whether the agent is training or testing
         # Optimizations can be applied during training that are not allowed for testing
         self.mode = mode
@@ -68,14 +68,20 @@ class TextLocEnv(gym.Env):
         # Image for the current episode
         self.episode_image = Image.new("RGB", (256, 256))
 
-        # Bounding boxes for the current episode image
+        # Ground truth bounding boxes for the current episode image
         self.episode_true_bboxes = None
+        # Predicted bounding boxes for the current episode image
+        self.episode_pred_bboxes = None
+        # IoU values for each trigger in the current episode
+        self.episode_trigger_ious = None
         # List of indices of masked bounding boxes for the current episode image
         self.episode_masked_indices = []
         # The agent's current window represented as [x0, y0, x1, y1]
         self.bbox = None
 
         self.num_detected_texts = 0
+        # For registering a handler that will be executed once after a step
+        self.post_step_handler = None
 
         self.reset()
 
@@ -102,6 +108,11 @@ class TextLocEnv(gym.Env):
         self.history.pop()
 
         self.state = self.compute_state()
+
+        # Execute and remove any registered post-step handler
+        if self.post_step_handler is not None:
+            self.post_step_handler()
+            self.post_step_handler = None
 
         # Terminate episode after reaching step limit (if set)
         # Prevents the agent from running into an infinite loop
@@ -133,25 +144,6 @@ class TextLocEnv(gym.Env):
         return history.tolist()
 
     @staticmethod
-    def to_four_corners_array(two_bbox):
-        """
-        Creates an array of bounding boxes with four corners out of a bounding box with two corners, so
-        that the ImageMasker can be applied.
-
-        :param two_bbox: Bounding box with two points, top left and bottom right
-
-        :return: An array of bounding boxes that corresponds to the requirements of the ImageMasker
-        """
-        top_left = np.array([two_bbox[0], two_bbox[1]], dtype=np.int32)
-        bottom_left = np.array([two_bbox[0], two_bbox[3]], dtype=np.int32)
-        top_right = np.array([two_bbox[2], two_bbox[1]], dtype=np.int32)
-        bottom_right = np.array([two_bbox[2], two_bbox[3]], dtype=np.int32)
-
-        four_bbox = np.array([bottom_right, bottom_left, top_left, top_right])
-
-        return np.array([four_bbox, four_bbox, four_bbox])
-
-    @staticmethod
     def to_standard_box(bbox):
         """
         Transforms a given bounding box into a standardized representation.
@@ -171,35 +163,9 @@ class TextLocEnv(gym.Env):
 
         :param bbox: Bounding box given as [(x0, y0), (x1, y1)] or [x0, y0, x1, y1]
         """
-        masker = ImageMasker(0)
         bbox = self.to_standard_box(bbox)
-
-        center_height = round((bbox[3] + bbox[1]) / 2)
-        center_width = round((bbox[2] + bbox[0]) / 2)
-        height_frac = round((bbox[3] - bbox[1]) / 12)
-        width_frac = round((bbox[2] - bbox[0]) / 12)
-
-        horizontal_box = [bbox[0], center_height - height_frac, bbox[2], center_height + height_frac]
-        vertical_box = [center_width - width_frac, bbox[1], center_width + width_frac, bbox[3]]
-
-        horizontal_box_four_corners = self.to_four_corners_array(horizontal_box)
-        vertical_box_four_corners = self.to_four_corners_array(vertical_box)
-
-        array_module = np
-
-        if self.gpu_id != -1:
-            array_module = cuda.cupy
-            horizontal_box_four_corners = cuda.to_gpu(horizontal_box_four_corners, self.gpu_id)
-            vertical_box_four_corners = cuda.to_gpu(vertical_box_four_corners, self.gpu_id)
-
-        new_img = array_module.array(self.episode_image, dtype=np.int32)
-        new_img = masker.mask_array(new_img, horizontal_box_four_corners, array_module)
-        new_img = masker.mask_array(new_img, vertical_box_four_corners, array_module)
-
-        if self.gpu_id != -1:
-            self.episode_image = Image.fromarray(cuda.to_cpu(new_img).astype(np.uint8))
-        else:
-            self.episode_image = Image.fromarray(new_img.astype(np.uint8))
+        masker = ImageMasker(self.episode_image, bbox)
+        self.episode_image = masker.mask()
 
     @property
     def episode_true_bboxes_unmasked(self):
@@ -230,16 +196,16 @@ class TextLocEnv(gym.Env):
         intersection = self.compute_intersection(other_bbox)
 
         area_1 = (self.bbox[2] - self.bbox[0]) * (self.bbox[3] - self.bbox[1])
-        area_2 = (other_bbox[1][0] - other_bbox[0][0]) * (other_bbox[1][1] - other_bbox[0][1])
+        area_2 = (other_bbox[2] - other_bbox[0]) * (other_bbox[3] - other_bbox[1])
         union = area_1 + area_2 - intersection
 
         return intersection / union
 
     def compute_intersection(self, other_bbox):
-        left = max(self.bbox[0], other_bbox[0][0])
-        top = max(self.bbox[1], other_bbox[0][1])
-        right = min(self.bbox[2], other_bbox[1][0])
-        bottom = min(self.bbox[3], other_bbox[1][1])
+        left = max(self.bbox[0], other_bbox[0])
+        top = max(self.bbox[1], other_bbox[1])
+        right = min(self.bbox[2], other_bbox[2])
+        bottom = min(self.bbox[3], other_bbox[3])
 
         if right < left or bottom < top:
             return 0
@@ -272,21 +238,28 @@ class TextLocEnv(gym.Env):
 
     def trigger(self):
         self.num_detected_texts += 1
+        self.episode_pred_bboxes.append(self.bbox)
+        # IoU values are only updated after trigger action is executed
+        # Therefore we need to track them lazily
+        self.post_step_handler = self._register_trigger_iou
+
         if not self.playout_episode:
             # Terminate episode after first trigger action
             self.done = True
             return
 
-        # Otherwise play out the full episode
         if self.mode == 'train':
-            # Speed up training by masking closest true bbox
             if len(self.episode_true_bboxes_unmasked) > 0:
                 index, bbox = self.closest_unmasked_true_bbox()
                 self.create_ior_mark(bbox)
                 self.episode_masked_indices.append(index)
         else:
             self.create_ior_mark(self.bbox)
+
         self.reset_bbox()
+
+    def _register_trigger_iou(self):
+        self.episode_trigger_ious.append(self.iou)
 
     def closest_unmasked_true_bbox(self):
         max_iou = None
@@ -360,6 +333,8 @@ class TextLocEnv(gym.Env):
                     self.episode_masked_indices.append(idx)
                     num_unmasked -= 1
 
+        self.episode_pred_bboxes = []
+        self.episode_trigger_ious = []
         self.current_step = 0
         self.reset_bbox()
         self.state = self.compute_state()
