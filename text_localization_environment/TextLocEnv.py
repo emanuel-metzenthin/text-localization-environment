@@ -35,7 +35,7 @@ class TextLocEnv(gym.Env):
         :type true_bboxes: numpy.ndarray
         :type gpu_id: int
         """
-        self.action_space = spaces.Discrete(9)
+        self.action_space = spaces.Discrete(10)
         self.action_set = {0: self.right,
                            1: self.left,
                            2: self.up,
