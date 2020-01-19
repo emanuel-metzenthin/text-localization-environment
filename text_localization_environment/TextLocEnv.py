@@ -128,7 +128,7 @@ class TextLocEnv(gym.Env):
             if self.evaluate_detected_instances() < 1.0:
                 return -10
             else:
-                return 10 * self.ETA2 - (self.current_step * self.DURATION_PENALTY)
+                return 10
 
         if self.action_set[action] == self.trigger:
             reward = 10 * self.ETA * self.iou - (self.current_step * self.DURATION_PENALTY)
