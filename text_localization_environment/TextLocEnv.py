@@ -21,17 +21,15 @@ class TextLocEnv(gym.Env):
     # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1 during premasking)
     P_MASK = 0.5
 
-    def __init__(self, image_paths, true_bboxes, gpu_id=-1,
+    def __init__(self, image_paths, true_bboxes,
         playout_episode=False, premasking=True, mode='train',
-        max_steps_per_image=200
+        max_steps_per_image=200, seed=None
     ):
         """
         :param image_paths: The paths to the individual images
         :param true_bboxes: The true bounding boxes for each image
-        :param gpu_id: The ID of the GPU to be used. -1 if CPU should be used instead
         :type image_paths: String or list
         :type true_bboxes: numpy.ndarray
-        :type gpu_id: int
         """
         self.action_space = spaces.Discrete(9)
         self.action_set = {0: self.right,
@@ -46,7 +44,6 @@ class TextLocEnv(gym.Env):
                            }
         # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
         self.observation_space = spaces.Tuple([spaces.Box(low=0, high=256, shape=(224,224,3)), spaces.Box(low=0,high=1,shape=(10,9))])
-        self.gpu_id = gpu_id
         if type(image_paths) is not list: image_paths = [image_paths]
         self.image_paths = image_paths
         self.true_bboxes = [[TextLocEnv.to_standard_box(b) for b in bboxes] for bboxes in true_bboxes]
@@ -59,8 +56,6 @@ class TextLocEnv(gym.Env):
         self.playout_episode = playout_episode
         # Episodes will be terminated automatically after reaching max steps
         self.max_steps_per_image = max_steps_per_image
-
-        self.seed()
 
         # Image for the current episode
         self.episode_image = Image.new("RGB", (256, 256))
@@ -79,9 +74,14 @@ class TextLocEnv(gym.Env):
         # For registering a handler that will be executed once after a step
         self.post_step_handler = None
 
+        self.seed(seed=seed)
         self.reset()
 
     def seed(self, seed=None):
+        # Note: Please use np_random object instead of np.random
+        if seed is not None:
+            np.random.seed(seed)
+            random.seed(seed)
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
@@ -310,7 +310,8 @@ class TextLocEnv(gym.Env):
             num_unmasked = self.episode_num_true_bboxes
             for idx, box in enumerate(self.episode_true_bboxes):
                 # Ensure at least 1 non-masked instance per observation
-                if num_unmasked > 1 and np.random.random() <= self.P_MASK:
+                mask_rand = self.np_random.random()
+                if num_unmasked > 1 and mask_rand <= self.P_MASK:
                     self.create_ior_mark(box)
                     self.episode_masked_indices.append(idx)
                     num_unmasked -= 1
