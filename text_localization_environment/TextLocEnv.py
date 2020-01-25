@@ -7,6 +7,7 @@ from PIL import Image, ImageDraw
 from PIL.Image import LANCZOS, MAX_IMAGE_PIXELS
 import numpy as np
 from text_localization_environment.ImageMasker import ImageMasker
+from text_localization_environment.utils import box_size, box_area, scale_bboxes
 
 
 class TextLocEnv(gym.Env):
@@ -23,7 +24,7 @@ class TextLocEnv(gym.Env):
 
     def __init__(self, image_paths, true_bboxes,
         playout_episode=False, premasking=True, mode='train',
-        max_steps_per_image=200, seed=None
+        max_steps_per_image=200, bbox_scaling=None, seed=None
     ):
         """
         :param image_paths: The paths to the individual images
@@ -50,6 +51,8 @@ class TextLocEnv(gym.Env):
         # Determines whether the agent is training or testing
         # Optimizations can be applied during training that are not allowed for testing
         self.mode = mode
+        # Factor for scaling all bounding boxes relative to their size
+        self.bbox_scaling = bbox_scaling
         # Whether IoR markers will be placed upfront after loading the image
         self.premasking = premasking
         # Whether an episode terminates after a single trigger or is played out until the end
@@ -266,23 +269,17 @@ class TextLocEnv(gym.Env):
 
         return (best_box_index, best_box)
 
-    @staticmethod
-    def box_size(box):
-        width = box[2] - box[0]
-        height = box[3] - box[1]
-
-        return width * height
-
     def adjust_bbox(self, directions):
-        ah = round(self.ALPHA * (self.bbox[3] - self.bbox[1]))
-        aw = round(self.ALPHA * (self.bbox[2] - self.bbox[0]))
+        width, height = box_size(self.bbox)
+        ah = round(self.ALPHA * height)
+        aw = round(self.ALPHA * width)
 
         adjustments = np.array([aw, ah, aw, ah])
         delta = directions * adjustments
 
         new_box = self.bbox + delta
 
-        if self.box_size(new_box) < MAX_IMAGE_PIXELS:
+        if box_area(new_box) < MAX_IMAGE_PIXELS:
             self.bbox = new_box
 
     def reset_bbox(self):
@@ -299,6 +296,13 @@ class TextLocEnv(gym.Env):
             image_index = self.np_random.randint(len(self.image_paths))
         self.episode_image = Image.open(self.image_paths[image_index])
         self.episode_true_bboxes = self.true_bboxes[image_index]
+
+        # Scale up/down by bounding boxes relative to their size
+        if self.bbox_scaling is not None and self.bbox_scaling != 1.0:
+            self.episode_true_bboxes = scale_bboxes(
+                self.episode_true_bboxes, self.episode_image.size,
+                self.bbox_scaling
+            )
 
         if self.episode_image.mode != 'RGB':
             self.episode_image = self.episode_image.convert('RGB')
