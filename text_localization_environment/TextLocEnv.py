@@ -21,7 +21,7 @@ class TextLocEnv(gym.Env):
     # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1 during premasking)
     P_MASK = 0.5
     # Reward for next image trigger action
-    ETA2 = 8.0
+    ETA2 = 10.0
 
     def __init__(self, image_paths, true_bboxes, gpu_id=-1,
         playout_episode=False, premasking=True, mode='train',
@@ -125,7 +125,7 @@ class TextLocEnv(gym.Env):
         reward = 0
 
         if self.action_set[action] == self.next_image_trigger:
-            if self.evaluate_detected_instances() < 1.0:
+            if self.evaluate_detected_instances() != 1.0:
                 return -10
             else:
                 return 10 * self.ETA2 - (self.current_step * self.DURATION_PENALTY)
