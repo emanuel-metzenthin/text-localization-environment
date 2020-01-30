@@ -327,8 +327,9 @@ class TextLocEnv(gym.Env):
         if self.mode == 'train' and self.premasking:
             num_unmasked = self.episode_num_true_bboxes
             for idx, box in enumerate(self.episode_true_bboxes):
-                # Ensure at least 1 non-masked instance per observation
-                if num_unmasked > 1 and np.random.random() <= self.P_MASK:
+                # Ensure at least 0 non-masked instance per observation
+                # -> possibly all texts are masked to train NextImageTrigger
+                if num_unmasked > 0 and np.random.random() <= self.P_MASK:
                     self.create_ior_mark(box)
                     self.episode_masked_indices.append(idx)
                     num_unmasked -= 1
