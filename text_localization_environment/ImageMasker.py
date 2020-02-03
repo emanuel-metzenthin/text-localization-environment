@@ -9,7 +9,7 @@ class ImageMasker:
         by a bounding box, given by four points.
     """
 
-    def __init__(self, image, bbox, strategy='cross'):
+    def __init__(self, image, bbox, strategy='fill'):
         self.image = image
         self.bbox = bbox
         self.strategies = {
