@@ -7,6 +7,7 @@ from PIL import Image, ImageDraw
 from PIL.Image import LANCZOS, MAX_IMAGE_PIXELS
 import numpy as np
 from text_localization_environment.ImageMasker import ImageMasker
+from text_localization_environment.utils import box_size, box_area, scale_bboxes
 
 
 class TextLocEnv(gym.Env):
@@ -23,17 +24,15 @@ class TextLocEnv(gym.Env):
     # Reward for next image trigger action
     ETA2 = 10.0
 
-    def __init__(self, image_paths, true_bboxes, gpu_id=-1,
+    def __init__(self, image_paths, true_bboxes,
         playout_episode=False, premasking=True, mode='train',
-        max_steps_per_image=200
+        max_steps_per_image=200, bbox_scaling=None, seed=None
     ):
         """
         :param image_paths: The paths to the individual images
         :param true_bboxes: The true bounding boxes for each image
-        :param gpu_id: The ID of the GPU to be used. -1 if CPU should be used instead
         :type image_paths: String or list
         :type true_bboxes: numpy.ndarray
-        :type gpu_id: int
         """
         self.action_space = spaces.Discrete(10)
         self.action_set = {0: self.right,
@@ -49,21 +48,20 @@ class TextLocEnv(gym.Env):
                            }
         # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
         self.observation_space = spaces.Tuple([spaces.Box(low=0, high=256, shape=(224,224,3)), spaces.Box(low=0,high=1,shape=(10,9))])
-        self.gpu_id = gpu_id
         if type(image_paths) is not list: image_paths = [image_paths]
         self.image_paths = image_paths
         self.true_bboxes = [[TextLocEnv.to_standard_box(b) for b in bboxes] for bboxes in true_bboxes]
         # Determines whether the agent is training or testing
         # Optimizations can be applied during training that are not allowed for testing
         self.mode = mode
+        # Factor for scaling all bounding boxes relative to their size
+        self.bbox_scaling = bbox_scaling
         # Whether IoR markers will be placed upfront after loading the image
         self.premasking = premasking
         # Whether an episode terminates after a single trigger or is played out until the end
         self.playout_episode = playout_episode
         # Episodes will be terminated automatically after reaching max steps
         self.max_steps_per_image = max_steps_per_image
-
-        self.seed()
 
         # Image for the current episode
         self.episode_image = Image.new("RGB", (256, 256))
@@ -83,9 +81,14 @@ class TextLocEnv(gym.Env):
         # For registering a handler that will be executed once after a step
         self.post_step_handler = None
 
+        self.seed(seed=seed)
         self.reset()
 
     def seed(self, seed=None):
+        # Note: Please use np_random object instead of np.random
+        if seed is not None:
+            np.random.seed(seed)
+            random.seed(seed)
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
@@ -290,15 +293,15 @@ class TextLocEnv(gym.Env):
         return width * height
 
     def adjust_bbox(self, directions):
-        ah = round(self.ALPHA * (self.bbox[3] - self.bbox[1]))
-        aw = round(self.ALPHA * (self.bbox[2] - self.bbox[0]))
+        width, height = box_size(self.bbox)
+        ah = round(self.ALPHA * height)
+        aw = round(self.ALPHA * width)
 
         adjustments = np.array([aw, ah, aw, ah])
         delta = directions * adjustments
-
         new_box = self.bbox + delta
 
-        if self.box_size(new_box) < MAX_IMAGE_PIXELS:
+        if box_area(new_box) < MAX_IMAGE_PIXELS:
             self.bbox = new_box
 
     def reset_bbox(self):
@@ -318,6 +321,13 @@ class TextLocEnv(gym.Env):
         self.episode_image = Image.open(self.image_paths[image_index])
         self.episode_true_bboxes = self.true_bboxes[image_index]
 
+        # Scale up/down by bounding boxes relative to their size
+        if self.bbox_scaling is not None and self.bbox_scaling != 1.0:
+            self.episode_true_bboxes = scale_bboxes(
+                self.episode_true_bboxes, self.episode_image.size,
+                self.bbox_scaling
+            )
+
         if self.episode_image.mode != 'RGB':
             self.episode_image = self.episode_image.convert('RGB')
 
@@ -329,7 +339,8 @@ class TextLocEnv(gym.Env):
             for idx, box in enumerate(self.episode_true_bboxes):
                 # Ensure at least 0 non-masked instance per observation
                 # -> possibly all texts are masked to train NextImageTrigger
-                if num_unmasked > 0 and np.random.random() <= self.P_MASK:
+                mask_rand = self.np_random.random()
+                if num_unmasked > 0 and mask_rand <= self.P_MASK:
                     self.create_ior_mark(box)
                     self.episode_masked_indices.append(idx)
                     num_unmasked -= 1
