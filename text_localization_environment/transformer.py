@@ -1,12 +1,7 @@
 import numpy as np
 from PIL.Image import MAX_IMAGE_PIXELS
 from abc import ABC, abstractmethod
-
-
-def box_size(box):
-    width = box[2] - box[0]
-    height = box[3] - box[1]
-    return width * height
+from .utils import box_size, box_area, scale_bboxes
 
 
 class BBoxTransformer(ABC):
@@ -32,15 +27,16 @@ class BBoxTransformer(ABC):
         return len(self.action_set)
 
     def _adjust_bbox(self, directions):
-        ah = round(self.ALPHA * (self.bbox[3] - self.bbox[1]))
-        aw = round(self.ALPHA * (self.bbox[2] - self.bbox[0]))
+        width, height = box_size(self.bbox)
+        ah = round(self.ALPHA * height)
+        aw = round(self.ALPHA * width)
 
         adjustments = np.array([aw, ah, aw, ah])
         delta = directions * adjustments
 
         new_box = self.bbox + delta
 
-        if box_size(new_box) < MAX_IMAGE_PIXELS:
+        if box_area(new_box) < MAX_IMAGE_PIXELS:
             self.bbox = new_box
 
 

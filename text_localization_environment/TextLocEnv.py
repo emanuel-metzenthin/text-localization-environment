@@ -1,13 +1,14 @@
 import gym
-from gym import spaces
 import random
+import numpy as np
+from gym import spaces
 from gym.utils import seeding
 from chainer.backends import cuda
 from PIL import Image, ImageDraw
 from PIL.Image import LANCZOS, MAX_IMAGE_PIXELS
-import numpy as np
 from .ImageMasker import ImageMasker
 from .transformer import LegacyBBoxTransformer, WangBBoxTransformer
+from .utils import scale_bboxes
 
 
 class TextLocEnv(gym.Env):
@@ -24,7 +25,8 @@ class TextLocEnv(gym.Env):
 
     def __init__(self, image_paths, true_bboxes,
         playout_episode=False, premasking=True, mode='train',
-        max_steps_per_image=200, seed=None, bbox_transformer=WangBBoxTransformer
+        max_steps_per_image=200, seed=None, bbox_scaling=0.1,
+        bbox_transformer=WangBBoxTransformer
     ):
         """
         :param image_paths: The paths to the individual images
@@ -42,6 +44,8 @@ class TextLocEnv(gym.Env):
         # Determines whether the agent is training or testing
         # Optimizations can be applied during training that are not allowed for testing
         self.mode = mode
+        # Factor for scaling all bounding boxes relative to their size
+        self.bbox_scaling = bbox_scaling
         # Whether IoR markers will be placed upfront after loading the image
         self.premasking = premasking
         # Whether an episode terminates after a single trigger or is played out until the end
@@ -255,6 +259,13 @@ class TextLocEnv(gym.Env):
             image_index = self.np_random.randint(len(self.image_paths))
         self.episode_image = Image.open(self.image_paths[image_index])
         self.episode_true_bboxes = self.true_bboxes[image_index]
+
+        # Scale up/down by bounding boxes relative to their size
+        if self.bbox_scaling is not None and self.bbox_scaling != 1.0:
+            self.episode_true_bboxes = scale_bboxes(
+                self.episode_true_bboxes, self.episode_image.size,
+                self.bbox_scaling
+            )
 
         if self.episode_image.mode != 'RGB':
             self.episode_image = self.episode_image.convert('RGB')
