@@ -6,7 +6,8 @@ from chainer.backends import cuda
 from PIL import Image, ImageDraw
 from PIL.Image import LANCZOS, MAX_IMAGE_PIXELS
 import numpy as np
-from text_localization_environment.ImageMasker import ImageMasker
+from .ImageMasker import ImageMasker
+from .transformer import LegacyBBoxTransformer, WangBBoxTransformer
 
 
 class TextLocEnv(gym.Env):
@@ -14,16 +15,16 @@ class TextLocEnv(gym.Env):
 
     DURATION_PENALTY = 0.03
     HISTORY_LENGTH = 10
-    # ⍺: factor relative to the current box size that is used for every transformation action
-    ALPHA = 0.2
     # η: Reward of the trigger action
     ETA = 7.0
     # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1 during premasking)
     P_MASK = 0.5
 
+    __test__ = 'transformer'
+
     def __init__(self, image_paths, true_bboxes,
         playout_episode=False, premasking=True, mode='train',
-        max_steps_per_image=200, seed=None
+        max_steps_per_image=200, seed=None, bbox_transformer=WangBBoxTransformer
     ):
         """
         :param image_paths: The paths to the individual images
@@ -31,17 +32,8 @@ class TextLocEnv(gym.Env):
         :type image_paths: String or list
         :type true_bboxes: numpy.ndarray
         """
-        self.action_space = spaces.Discrete(9)
-        self.action_set = {0: self.right,
-                           1: self.left,
-                           2: self.up,
-                           3: self.down,
-                           4: self.bigger,
-                           5: self.smaller,
-                           6: self.fatter,
-                           7: self.taller,
-                           8: self.trigger
-                           }
+        self.bbox_transformer = bbox_transformer()
+        self.action_space = spaces.Discrete(len(self.action_set))
         # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
         self.observation_space = spaces.Tuple([spaces.Box(low=0, high=256, shape=(224,224,3)), spaces.Box(low=0,high=1,shape=(10,9))])
         if type(image_paths) is not list: image_paths = [image_paths]
@@ -68,14 +60,24 @@ class TextLocEnv(gym.Env):
         self.episode_trigger_ious = None
         # List of indices of masked bounding boxes for the current episode image
         self.episode_masked_indices = []
-        # The agent's current window represented as [x0, y0, x1, y1]
-        self.bbox = None
 
         # For registering a handler that will be executed once after a step
         self.post_step_handler = None
 
         self.seed(seed=seed)
         self.reset()
+
+    @property
+    def action_set(self):
+        n_actions = len(self.bbox_transformer.action_set)
+        actions = {**self.bbox_transformer.action_set}
+        actions[n_actions] = self.trigger
+        return actions
+
+    @property
+    def bbox(self):
+        # The agent's current window represented as [x0, y0, x1, y1]
+        return self.bbox_transformer.bbox
 
     def seed(self, seed=None):
         # Note: Please use np_random object instead of np.random
@@ -202,30 +204,6 @@ class TextLocEnv(gym.Env):
 
         return (right - left) * (bottom - top)
 
-    def up(self):
-        self.adjust_bbox(np.array([0, -1, 0, -1]))
-
-    def down(self):
-        self.adjust_bbox(np.array([0, 1, 0, 1]))
-
-    def left(self):
-        self.adjust_bbox(np.array([-1, 0, -1, 0]))
-
-    def right(self):
-        self.adjust_bbox(np.array([1, 0, 1, 0]))
-
-    def bigger(self):
-        self.adjust_bbox(np.array([-0.5, -0.5, 0.5, 0.5]))
-
-    def smaller(self):
-        self.adjust_bbox(np.array([0.5, 0.5, -0.5, -0.5]))
-
-    def fatter(self):
-        self.adjust_bbox(np.array([0, 0.5, 0, -0.5]))
-
-    def taller(self):
-        self.adjust_bbox(np.array([0.5, 0, -0.5, 0]))
-
     def trigger(self):
         self.episode_pred_bboxes.append(self.bbox)
         # IoU values are only updated after trigger action is executed
@@ -245,7 +223,7 @@ class TextLocEnv(gym.Env):
         else:
             self.create_ior_mark(self.bbox)
 
-        self.reset_bbox()
+        self.bbox_transformer.reset(self.episode_image.width, self.episode_image.height)
 
     def _register_trigger_iou(self):
         self.episode_trigger_ious.append(self.iou)
@@ -265,28 +243,6 @@ class TextLocEnv(gym.Env):
                 best_box_index = index
 
         return (best_box_index, best_box)
-
-    @staticmethod
-    def box_size(box):
-        width = box[2] - box[0]
-        height = box[3] - box[1]
-
-        return width * height
-
-    def adjust_bbox(self, directions):
-        ah = round(self.ALPHA * (self.bbox[3] - self.bbox[1]))
-        aw = round(self.ALPHA * (self.bbox[2] - self.bbox[0]))
-
-        adjustments = np.array([aw, ah, aw, ah])
-        delta = directions * adjustments
-
-        new_box = self.bbox + delta
-
-        if self.box_size(new_box) < MAX_IMAGE_PIXELS:
-            self.bbox = new_box
-
-    def reset_bbox(self):
-        self.bbox = np.array([0, 0, self.episode_image.width, self.episode_image.height])
 
     def reset(self, image_index=None):
         """Reset the environment to its initial state (the bounding box covers the entire image"""
@@ -319,7 +275,7 @@ class TextLocEnv(gym.Env):
         self.episode_pred_bboxes = []
         self.episode_trigger_ious = []
         self.current_step = 0
-        self.reset_bbox()
+        self.bbox_transformer.reset(self.episode_image.width, self.episode_image.height)
         self.state = self.compute_state()
         self.done = False
         self.iou = self.compute_best_iou()
