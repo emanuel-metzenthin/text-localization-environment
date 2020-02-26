@@ -238,7 +238,7 @@ class TextLocEnv(gym.Env):
         return (right - left) * (bottom - top)
 
     def trigger(self):
-        self.num_triggers += 1
+        self.num_triggers_used += 1
         self.episode_pred_bboxes.append(self.bbox)
         # IoU values are only updated after trigger action is executed
         # Therefore we need to track them lazily
