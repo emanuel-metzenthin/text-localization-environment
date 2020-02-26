@@ -7,26 +7,30 @@ from chainer.backends import cuda
 from PIL import Image, ImageDraw
 from PIL.Image import LANCZOS, MAX_IMAGE_PIXELS
 from .ImageMasker import ImageMasker
-from .transformer import LegacyBBoxTransformer, WangBBoxTransformer
+from .transformer import create_bbox_transformer
 from .utils import scale_bboxes
 
 
 class TextLocEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array', 'box']}
 
-    DURATION_PENALTY = 0.03
+    # Length of history in state
     HISTORY_LENGTH = 10
-    # Reward of the trigger action
+
+    # Base Reward for trigger action
     ETA = 7.0
-    # Reward for termination action
+    # Base Reward for termination action
     ETA2 = 10.0
-    # Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1 during premasking)
+    # Penalty substracted from reward
+    DURATION_PENALTY = 0.03
+
+    # Probability for masking a bounding box in a new observation (applied during premasking)
     P_MASK = 0.5
 
     def __init__(self, image_paths, true_bboxes,
         playout_episode=False, premasking=True, mode='train',
         max_steps_per_image=200, seed=None, bbox_scaling=0.125,
-        bbox_transformer=LegacyBBoxTransformer, has_termination_action=True
+        bbox_transformer='base', has_termination_action=True
     ):
         """
         :param image_paths: The paths to the individual images
@@ -49,7 +53,7 @@ class TextLocEnv(gym.Env):
         self.has_termination_action = has_termination_action
 
         # Initialize action space
-        self.bbox_transformer = bbox_transformer()
+        self.bbox_transformer = create_bbox_transformer(bbox_transformer)
         self.action_space = spaces.Discrete(len(self.action_set))
         # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
         self.observation_space = spaces.Tuple([

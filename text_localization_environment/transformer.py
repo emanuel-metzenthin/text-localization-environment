@@ -40,7 +40,7 @@ class BBoxTransformer(ABC):
             self.bbox = new_box
 
 
-class LegacyBBoxTransformer(BBoxTransformer):
+class BaseBBoxTransformer(BBoxTransformer):
      # ⍺: factor relative to the current box size that is used for every transformation action
     ALPHA = 0.2
 
@@ -123,3 +123,11 @@ class WangBBoxTransformer(BBoxTransformer):
 
     def tl_down_br_up(self):
         self._adjust_bbox(np.array([0, 1, 0, -1]))
+
+
+def create_bbox_transformer(name):
+    transformers = {
+        'base': BaseBBoxTransformer,
+        'wang': WangBBoxTransformer,
+    }
+    return transformers[name]()
