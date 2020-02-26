@@ -30,7 +30,8 @@ class TextLocEnv(gym.Env):
     def __init__(self, image_paths, true_bboxes,
         playout_episode=False, premasking=True, mode='train',
         max_steps_per_image=200, seed=None, bbox_scaling=0.125,
-        bbox_transformer='base', has_termination_action=True
+        bbox_transformer='base', has_termination_action=True,
+        ior_marker_type='cross'
     ):
         """
         :param image_paths: The paths to the individual images
@@ -51,6 +52,8 @@ class TextLocEnv(gym.Env):
         self.max_steps_per_image = max_steps_per_image
         # Whether a termination action should be provided in the action set
         self.has_termination_action = has_termination_action
+        # The type of IoR marker to be used when masking trigger regions
+        self.ior_marker_type = ior_marker_type
 
         # Initialize action space
         self.bbox_transformer = create_bbox_transformer(bbox_transformer)
@@ -186,7 +189,7 @@ class TextLocEnv(gym.Env):
         :param bbox: Bounding box given as [(x0, y0), (x1, y1)] or [x0, y0, x1, y1]
         """
         bbox = self.to_standard_box(bbox)
-        masker = ImageMasker(self.episode_image, bbox)
+        masker = ImageMasker(self.episode_image, bbox, self.ior_marker_type)
         self.episode_image = masker.mask()
 
     @property

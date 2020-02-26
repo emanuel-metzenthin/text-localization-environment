@@ -8,8 +8,7 @@ class ImageMasker:
         This class implements a CPU/GPU method for adding a mask on an array. Think of it as drawing a polygon that is defined
         by a bounding box, given by four points.
     """
-
-    def __init__(self, image, bbox, strategy='fill'):
+    def __init__(self, image, bbox, strategy):
         self.image = image
         self.bbox = bbox
         self.strategies = {
