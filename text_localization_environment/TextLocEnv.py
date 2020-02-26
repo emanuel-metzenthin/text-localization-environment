@@ -9,6 +9,7 @@ from PIL.Image import LANCZOS, MAX_IMAGE_PIXELS
 from .ImageMasker import ImageMasker
 from .transformer import create_bbox_transformer
 from .utils import scale_bboxes
+from .iou import area, intersection, intersection_over_union
 
 
 class TextLocEnv(gym.Env):
@@ -156,11 +157,21 @@ class TextLocEnv(gym.Env):
                     return 10 + (self.current_step * self.DURATION_PENALTY)
 
         if self.action_set[action] == self.trigger:
-            reward = 10 * self.ETA * self.iou - (self.current_step * self.DURATION_PENALTY)
+            time_penalty = self.current_step * self.DURATION_PENALTY
+            reward = 10 * self.ETA * self.iou * self.tosf - time_penalty
         else:
             self.iou = self.compute_best_iou()
 
         return reward
+
+    def _calculate_tosf(self, true_bbox):
+        """
+        True overlap scaling factor determines how much of the true bounding
+        box is overlapped by the predicted bounding box on a scale from [0,1].
+        """
+        if not true_bbox:
+            return 0
+        return intersection(self.bbox, true_bbox) / area(true_bbox)
 
     def create_empty_history(self):
         flat_history = np.repeat([False], self.HISTORY_LENGTH * self.action_space.n)
@@ -217,25 +228,8 @@ class TextLocEnv(gym.Env):
         return max_iou
 
     def compute_iou(self, other_bbox):
-        """Computes the intersection over union of the argument and the current bounding box."""
-        intersection = self.compute_intersection(other_bbox)
-
-        area_1 = (self.bbox[2] - self.bbox[0]) * (self.bbox[3] - self.bbox[1])
-        area_2 = (other_bbox[2] - other_bbox[0]) * (other_bbox[3] - other_bbox[1])
-        union = area_1 + area_2 - intersection
-
-        return intersection / union
-
-    def compute_intersection(self, other_bbox):
-        left = max(self.bbox[0], other_bbox[0])
-        top = max(self.bbox[1], other_bbox[1])
-        right = min(self.bbox[2], other_bbox[2])
-        bottom = min(self.bbox[3], other_bbox[3])
-
-        if right < left or bottom < top:
-            return 0
-
-        return (right - left) * (bottom - top)
+        """Computes the IoU of the current bounding box with the given one."""
+        return intersection_over_union(self.bbox, other_bbox)
 
     def trigger(self):
         self.num_triggers_used += 1
@@ -252,6 +246,7 @@ class TextLocEnv(gym.Env):
         if self.mode == 'train':
             if len(self.episode_true_bboxes_unmasked) > 0:
                 index, bbox = self.closest_unmasked_true_bbox()
+                self.tosf = self._calculate_tosf(bbox)
                 self.create_ior_mark(bbox)
                 self.episode_masked_indices.append(index)
         else:
@@ -328,6 +323,7 @@ class TextLocEnv(gym.Env):
         self.done = False
         self.iou = self.compute_best_iou()
         self.max_iou = self.iou
+        self.tosf = 1
 
         return self.state
 
