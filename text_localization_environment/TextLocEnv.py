@@ -19,7 +19,7 @@ class TextLocEnv(gym.Env):
     HISTORY_LENGTH = 10
 
     # Base Reward for trigger action
-    ETA = 7.0
+    ETA = 100.0
     # Base Reward for termination action
     ETA2 = 10.0
     # Penalty substracted from reward
@@ -32,7 +32,7 @@ class TextLocEnv(gym.Env):
         playout_episode=False, premasking=True, mode='train',
         max_steps_per_image=200, seed=None, bbox_scaling=0.125,
         bbox_transformer='base', has_termination_action=True,
-        ior_marker_type='cross'
+        ior_marker_type='cross', iou_gate=0.6
     ):
         """
         :param image_paths: The paths to the individual images
@@ -55,6 +55,7 @@ class TextLocEnv(gym.Env):
         self.has_termination_action = has_termination_action
         # The type of IoR marker to be used when masking trigger regions
         self.ior_marker_type = ior_marker_type
+        self.iou_gate = iou_gate
 
         # Initialize action space
         self.bbox_transformer = create_bbox_transformer(bbox_transformer)
@@ -157,8 +158,11 @@ class TextLocEnv(gym.Env):
                     return 10 + (self.current_step * self.DURATION_PENALTY)
 
         if self.action_set[action] == self.trigger:
-            time_penalty = self.current_step * self.DURATION_PENALTY
-            reward = 10 * self.ETA * self.iou * self.tosf - time_penalty
+            if self.iou >= self.iou_gate:
+                sum_ior_ious = 0
+                for ior_box in self.episode_found_bboxes:
+                    sum_ior_ious += self.compute_iou(ior_box)
+                reward = self.ETA * (self.iou - (sum_ior_ious ** 2)) * self.tosf - (self.current_step * self.DURATION_PENALTY)
         else:
             self.iou = self.compute_best_iou()
 
@@ -276,6 +280,13 @@ class TextLocEnv(gym.Env):
     def terminate(self):
         """Termination action to be used when all text instanced have been found."""
         self.done = True
+
+    @property
+    def episode_found_bboxes(self):
+        bboxes = []
+        for idx in self.episode_masked_indices:
+            bboxes.append(self.episode_true_bboxes[idx])
+        return bboxes
 
     def reset(self, image_index=None):
         """Reset the environment to its initial state (the bounding box covers the entire image)"""
