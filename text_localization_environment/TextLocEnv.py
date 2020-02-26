@@ -20,6 +20,8 @@ class TextLocEnv(gym.Env):
     ETA = 7.0
     # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1 during premasking)
     P_MASK = 0.5
+    # Reward for next image trigger action
+    ETA2 = 10.0
 
     __test__ = 'transformer'
 
@@ -34,8 +36,23 @@ class TextLocEnv(gym.Env):
         :type image_paths: String or list
         :type true_bboxes: numpy.ndarray
         """
+<<<<<<< HEAD
         self.bbox_transformer = bbox_transformer()
         self.action_space = spaces.Discrete(len(self.action_set))
+=======
+        self.action_space = spaces.Discrete(10)
+        self.action_set = {0: self.right,
+                           1: self.left,
+                           2: self.up,
+                           3: self.down,
+                           4: self.bigger,
+                           5: self.smaller,
+                           6: self.fatter,
+                           7: self.taller,
+                           8: self.trigger,
+                           9: self.next_image_trigger
+                           }
+>>>>>>> dev
         # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
         self.observation_space = spaces.Tuple([spaces.Box(low=0, high=256, shape=(224,224,3)), spaces.Box(low=0,high=1,shape=(10,9))])
         if type(image_paths) is not list: image_paths = [image_paths]
@@ -65,6 +82,7 @@ class TextLocEnv(gym.Env):
         # List of indices of masked bounding boxes for the current episode image
         self.episode_masked_indices = []
 
+        self.num_detected_texts = 0
         # For registering a handler that will be executed once after a step
         self.post_step_handler = None
 
@@ -125,6 +143,12 @@ class TextLocEnv(gym.Env):
 
     def calculate_reward(self, action):
         reward = 0
+
+        if self.action_set[action] == self.next_image_trigger:
+            if self.evaluate_detected_instances() != 1.0:
+                return -10
+            else:
+                return 10 + (self.current_step * self.DURATION_PENALTY)
 
         if self.action_set[action] == self.trigger:
             reward = 10 * self.ETA * self.iou - (self.current_step * self.DURATION_PENALTY)
@@ -209,6 +233,7 @@ class TextLocEnv(gym.Env):
         return (right - left) * (bottom - top)
 
     def trigger(self):
+        self.num_detected_texts += 1
         self.episode_pred_bboxes.append(self.bbox)
         # IoU values are only updated after trigger action is executed
         # Therefore we need to track them lazily
@@ -248,8 +273,40 @@ class TextLocEnv(gym.Env):
 
         return (best_box_index, best_box)
 
+<<<<<<< HEAD
+=======
+    # trigger that should be used when all text instances have been detected by the agent
+    def next_image_trigger(self):
+        self.done = True
+        # self.reset()
+
+    @staticmethod
+    def box_size(box):
+        width = box[2] - box[0]
+        height = box[3] - box[1]
+
+        return width * height
+
+    def adjust_bbox(self, directions):
+        width, height = box_size(self.bbox)
+        ah = round(self.ALPHA * height)
+        aw = round(self.ALPHA * width)
+
+        adjustments = np.array([aw, ah, aw, ah])
+        delta = directions * adjustments
+        new_box = self.bbox + delta
+
+        if box_area(new_box) < MAX_IMAGE_PIXELS:
+            self.bbox = new_box
+
+    def reset_bbox(self):
+        self.bbox = np.array([0, 0, self.episode_image.width, self.episode_image.height])
+
+>>>>>>> dev
     def reset(self, image_index=None):
-        """Reset the environment to its initial state (the bounding box covers the entire image"""
+        """Reset the environment to its initial state (the bounding box covers the entire image)"""
+        self.num_detected_texts = 0
+
         self.history = self.create_empty_history()
         if self.episode_image is not None:
             self.episode_image.close()
@@ -276,9 +333,10 @@ class TextLocEnv(gym.Env):
         if self.mode == 'train' and self.premasking:
             num_unmasked = self.episode_num_true_bboxes
             for idx, box in enumerate(self.episode_true_bboxes):
-                # Ensure at least 1 non-masked instance per observation
+                # Ensure at least 0 non-masked instance per observation
+                # -> possibly all texts are masked to train NextImageTrigger
                 mask_rand = self.np_random.random()
-                if num_unmasked > 1 and mask_rand <= self.P_MASK:
+                if num_unmasked > 0 and mask_rand <= self.P_MASK:
                     self.create_ior_mark(box)
                     self.episode_masked_indices.append(idx)
                     num_unmasked -= 1
@@ -356,3 +414,6 @@ class TextLocEnv(gym.Env):
         if not self.episode_true_bboxes:
             return None
         return len(self.episode_true_bboxes)
+
+    def evaluate_detected_instances(self):
+        return (self.num_detected_texts / len(self.episode_true_bboxes))
