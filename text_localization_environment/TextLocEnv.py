@@ -1,29 +1,34 @@
 import gym
-from gym import spaces
 import random
+import numpy as np
+from gym import spaces
 from gym.utils import seeding
 from chainer.backends import cuda
 from PIL import Image, ImageDraw
 from PIL.Image import LANCZOS, MAX_IMAGE_PIXELS
-import numpy as np
-from text_localization_environment.ImageMasker import ImageMasker
+from .ImageMasker import ImageMasker
+from .transformer import create_bbox_transformer
+from .utils import scale_bboxes
 
 
 class TextLocEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array', 'box']}
 
+    # Base reward for trigger action
+    ETA_TRIGGER = 70.0
+    # Base reward for termination action
+    ETA_TERMINATION = 10.0
+    # Penalty substracted from trigger reward
     DURATION_PENALTY = 0.03
-    HISTORY_LENGTH = 10
-    # ⍺: factor relative to the current box size that is used for every transformation action
-    ALPHA = 0.2
-    # η: Reward of the trigger action
-    ETA = 7.0
-    # p: Probability for masking a bounding box in a new observation (applied separately to boxes 0..N-1 during premasking)
+
+    # Probability for masking a bounding box in a new observation (applied during premasking)
     P_MASK = 0.5
 
     def __init__(self, image_paths, true_bboxes,
         playout_episode=False, premasking=True, mode='train',
-        max_steps_per_image=200, seed=None
+        max_steps_per_image=200, seed=None, bbox_scaling=0.125,
+        bbox_transformer='base', has_termination_action=True,
+        ior_marker_type='cross', history_length=10
     ):
         """
         :param image_paths: The paths to the individual images
@@ -31,35 +36,46 @@ class TextLocEnv(gym.Env):
         :type image_paths: String or list
         :type true_bboxes: numpy.ndarray
         """
-        self.action_space = spaces.Discrete(9)
-        self.action_set = {0: self.right,
-                           1: self.left,
-                           2: self.up,
-                           3: self.down,
-                           4: self.bigger,
-                           5: self.smaller,
-                           6: self.fatter,
-                           7: self.taller,
-                           8: self.trigger
-                           }
-        # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
-        self.observation_space = spaces.Tuple([spaces.Box(low=0, high=256, shape=(224,224,3)), spaces.Box(low=0,high=1,shape=(10,9))])
-        if type(image_paths) is not list: image_paths = [image_paths]
-        self.image_paths = image_paths
-        self.true_bboxes = [[TextLocEnv.to_standard_box(b) for b in bboxes] for bboxes in true_bboxes]
         # Determines whether the agent is training or testing
         # Optimizations can be applied during training that are not allowed for testing
         self.mode = mode
+        # Factor for scaling all bounding boxes relative to their size
+        self.bbox_scaling = bbox_scaling
         # Whether IoR markers will be placed upfront after loading the image
         self.premasking = premasking
         # Whether an episode terminates after a single trigger or is played out until the end
         self.playout_episode = playout_episode
         # Episodes will be terminated automatically after reaching max steps
         self.max_steps_per_image = max_steps_per_image
+        # Whether a termination action should be provided in the action set
+        self.has_termination_action = has_termination_action
+        # The type of IoR marker to be used when masking trigger regions
+        self.ior_marker_type = ior_marker_type
+        # Length of history in state & agent model
+        self.history_length = history_length
+
+        # Initialize action space
+        self.bbox_transformer = create_bbox_transformer(bbox_transformer)
+        self.action_space = spaces.Discrete(len(self.action_set))
+        # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
+        self.observation_space = spaces.Tuple([
+            spaces.Box(low=0, high=256, shape=(224, 224, 3)),
+            spaces.Box(low=0, high=1, shape=(self.history_length, len(self.action_set)))
+        ])
+
+        # Initialize dataset
+        if type(image_paths) is not list:
+            image_paths = [image_paths]
+        self.image_paths = image_paths
+        self.true_bboxes = [[TextLocEnv.to_standard_box(b) for b in bboxes] for bboxes in true_bboxes]
+
+        # For registering a handler that will be executed once after a step
+        self.post_step_handler = None
+
+        # Episode-specific
 
         # Image for the current episode
-        self.episode_image = Image.new("RGB", (256, 256))
-
+        self.episode_image = None
         # Ground truth bounding boxes for the current episode image
         self.episode_true_bboxes = None
         # Predicted bounding boxes for the current episode image
@@ -68,14 +84,25 @@ class TextLocEnv(gym.Env):
         self.episode_trigger_ious = None
         # List of indices of masked bounding boxes for the current episode image
         self.episode_masked_indices = []
-        # The agent's current window represented as [x0, y0, x1, y1]
-        self.bbox = None
-
-        # For registering a handler that will be executed once after a step
-        self.post_step_handler = None
+        # Number of trigger actions used so far
+        self.num_triggers_used = 0
 
         self.seed(seed=seed)
         self.reset()
+
+    @property
+    def action_set(self):
+        n_actions = len(self.bbox_transformer.action_set)
+        actions = {**self.bbox_transformer.action_set}
+        actions[n_actions] = self.trigger
+        if self.has_termination_action:
+            actions[n_actions + 1] = self.terminate
+        return actions
+
+    @property
+    def bbox(self):
+        # The agent's current window represented as [x0, y0, x1, y1]
+        return self.bbox_transformer.bbox
 
     def seed(self, seed=None):
         # Note: Please use np_random object instead of np.random
@@ -120,16 +147,23 @@ class TextLocEnv(gym.Env):
     def calculate_reward(self, action):
         reward = 0
 
+        if self.has_termination_action:
+            if self.action_set[action] == self.terminate:
+                if self.pct_triggers_used != 1.0:
+                    return -1 * self.ETA_TERMINATION
+                else:
+                    return self.ETA_TERMINATION + (self.current_step * self.DURATION_PENALTY)
+
         if self.action_set[action] == self.trigger:
-            reward = 10 * self.ETA * self.iou - (self.current_step * self.DURATION_PENALTY)
+            reward = self.ETA_TRIGGER * self.iou - (self.current_step * self.DURATION_PENALTY)
         else:
             self.iou = self.compute_best_iou()
 
         return reward
 
     def create_empty_history(self):
-        flat_history = np.repeat([False], self.HISTORY_LENGTH * self.action_space.n)
-        history = flat_history.reshape((self.HISTORY_LENGTH, self.action_space.n))
+        flat_history = np.repeat([False], self.history_length * self.action_space.n)
+        history = flat_history.reshape((self.history_length, self.action_space.n))
 
         return history.tolist()
 
@@ -154,7 +188,7 @@ class TextLocEnv(gym.Env):
         :param bbox: Bounding box given as [(x0, y0), (x1, y1)] or [x0, y0, x1, y1]
         """
         bbox = self.to_standard_box(bbox)
-        masker = ImageMasker(self.episode_image, bbox)
+        masker = ImageMasker(self.episode_image, bbox, self.ior_marker_type)
         self.episode_image = masker.mask()
 
     @property
@@ -202,31 +236,8 @@ class TextLocEnv(gym.Env):
 
         return (right - left) * (bottom - top)
 
-    def up(self):
-        self.adjust_bbox(np.array([0, -1, 0, -1]))
-
-    def down(self):
-        self.adjust_bbox(np.array([0, 1, 0, 1]))
-
-    def left(self):
-        self.adjust_bbox(np.array([-1, 0, -1, 0]))
-
-    def right(self):
-        self.adjust_bbox(np.array([1, 0, 1, 0]))
-
-    def bigger(self):
-        self.adjust_bbox(np.array([-0.5, -0.5, 0.5, 0.5]))
-
-    def smaller(self):
-        self.adjust_bbox(np.array([0.5, 0.5, -0.5, -0.5]))
-
-    def fatter(self):
-        self.adjust_bbox(np.array([0, 0.5, 0, -0.5]))
-
-    def taller(self):
-        self.adjust_bbox(np.array([0.5, 0, -0.5, 0]))
-
     def trigger(self):
+        self.num_triggers_used += 1
         self.episode_pred_bboxes.append(self.bbox)
         # IoU values are only updated after trigger action is executed
         # Therefore we need to track them lazily
@@ -245,7 +256,7 @@ class TextLocEnv(gym.Env):
         else:
             self.create_ior_mark(self.bbox)
 
-        self.reset_bbox()
+        self.bbox_transformer.reset(self.episode_image.width, self.episode_image.height)
 
     def _register_trigger_iou(self):
         self.episode_trigger_ious.append(self.iou)
@@ -266,30 +277,12 @@ class TextLocEnv(gym.Env):
 
         return (best_box_index, best_box)
 
-    @staticmethod
-    def box_size(box):
-        width = box[2] - box[0]
-        height = box[3] - box[1]
-
-        return width * height
-
-    def adjust_bbox(self, directions):
-        ah = round(self.ALPHA * (self.bbox[3] - self.bbox[1]))
-        aw = round(self.ALPHA * (self.bbox[2] - self.bbox[0]))
-
-        adjustments = np.array([aw, ah, aw, ah])
-        delta = directions * adjustments
-
-        new_box = self.bbox + delta
-
-        if self.box_size(new_box) < MAX_IMAGE_PIXELS:
-            self.bbox = new_box
-
-    def reset_bbox(self):
-        self.bbox = np.array([0, 0, self.episode_image.width, self.episode_image.height])
+    def terminate(self):
+        """Termination action to be used when all text instanced have been found."""
+        self.done = True
 
     def reset(self, image_index=None):
-        """Reset the environment to its initial state (the bounding box covers the entire image"""
+        """Reset the environment to its initial state (the bounding box covers the entire image)"""
         self.history = self.create_empty_history()
         if self.episode_image is not None:
             self.episode_image.close()
@@ -300,6 +293,13 @@ class TextLocEnv(gym.Env):
         self.episode_image = Image.open(self.image_paths[image_index])
         self.episode_true_bboxes = self.true_bboxes[image_index]
 
+        # Scale up/down by bounding boxes relative to their size
+        if self.bbox_scaling is not None and self.bbox_scaling != 1.0:
+            self.episode_true_bboxes = scale_bboxes(
+                self.episode_true_bboxes, self.episode_image.size,
+                self.bbox_scaling
+            )
+
         if self.episode_image.mode != 'RGB':
             self.episode_image = self.episode_image.convert('RGB')
 
@@ -309,17 +309,20 @@ class TextLocEnv(gym.Env):
         if self.mode == 'train' and self.premasking:
             num_unmasked = self.episode_num_true_bboxes
             for idx, box in enumerate(self.episode_true_bboxes):
-                # Ensure at least 1 non-masked instance per observation
+                # Ensure at least 0 non-masked instance per observation
+                # -> possibly all texts are masked to train NextImageTrigger
                 mask_rand = self.np_random.random()
-                if num_unmasked > 1 and mask_rand <= self.P_MASK:
+                min_unmasked = 0 if self.has_termination_action else 1
+                if num_unmasked > min_unmasked and mask_rand <= self.P_MASK:
                     self.create_ior_mark(box)
                     self.episode_masked_indices.append(idx)
                     num_unmasked -= 1
 
         self.episode_pred_bboxes = []
         self.episode_trigger_ious = []
+        self.num_triggers_used = 0
         self.current_step = 0
-        self.reset_bbox()
+        self.bbox_transformer.reset(self.episode_image.width, self.episode_image.height)
         self.state = self.compute_state()
         self.done = False
         self.iou = self.compute_best_iou()
@@ -329,7 +332,6 @@ class TextLocEnv(gym.Env):
 
     def render(self, mode='human', return_as_file=False, include_true_bboxes=False):
         """Render the current state"""
-
         image = self.episode_image
         if include_true_bboxes:
             image = self.episode_image_with_true_bboxes
@@ -389,3 +391,7 @@ class TextLocEnv(gym.Env):
         if not self.episode_true_bboxes:
             return None
         return len(self.episode_true_bboxes)
+
+    @property
+    def pct_triggers_used(self):
+        return (self.num_triggers_used / len(self.episode_true_bboxes))
