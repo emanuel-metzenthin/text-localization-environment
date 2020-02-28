@@ -14,14 +14,11 @@ from .utils import scale_bboxes
 class TextLocEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array', 'box']}
 
-    # Length of history in state
-    HISTORY_LENGTH = 10
-
-    # Base Reward for trigger action
-    ETA = 7.0
-    # Base Reward for termination action
-    ETA2 = 10.0
-    # Penalty substracted from reward
+    # Base reward for trigger action
+    ETA_TRIGGER = 70.0
+    # Base reward for termination action
+    ETA_TERMINATION = 10.0
+    # Penalty substracted from trigger reward
     DURATION_PENALTY = 0.03
 
     # Probability for masking a bounding box in a new observation (applied during premasking)
@@ -31,7 +28,7 @@ class TextLocEnv(gym.Env):
         playout_episode=False, premasking=True, mode='train',
         max_steps_per_image=200, seed=None, bbox_scaling=0.125,
         bbox_transformer='base', has_termination_action=True,
-        ior_marker_type='cross'
+        ior_marker_type='cross', history_length=10
     ):
         """
         :param image_paths: The paths to the individual images
@@ -54,6 +51,8 @@ class TextLocEnv(gym.Env):
         self.has_termination_action = has_termination_action
         # The type of IoR marker to be used when masking trigger regions
         self.ior_marker_type = ior_marker_type
+        # Length of history in state & agent model
+        self.history_length = history_length
 
         # Initialize action space
         self.bbox_transformer = create_bbox_transformer(bbox_transformer)
@@ -61,7 +60,7 @@ class TextLocEnv(gym.Env):
         # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
         self.observation_space = spaces.Tuple([
             spaces.Box(low=0, high=256, shape=(224, 224, 3)),
-            spaces.Box(low=0, high=1, shape=(self.HISTORY_LENGTH, len(self.action_set)))
+            spaces.Box(low=0, high=1, shape=(self.history_length, len(self.action_set)))
         ])
 
         # Initialize dataset
@@ -76,7 +75,7 @@ class TextLocEnv(gym.Env):
         # Episode-specific
 
         # Image for the current episode
-        self.episode_image = Image.new("RGB", (256, 256))
+        self.episode_image = None
         # Ground truth bounding boxes for the current episode image
         self.episode_true_bboxes = None
         # Predicted bounding boxes for the current episode image
@@ -151,20 +150,20 @@ class TextLocEnv(gym.Env):
         if self.has_termination_action:
             if self.action_set[action] == self.terminate:
                 if self.pct_triggers_used != 1.0:
-                    return -10
+                    return -1 * self.ETA_TERMINATION
                 else:
-                    return 10 + (self.current_step * self.DURATION_PENALTY)
+                    return self.ETA_TERMINATION + (self.current_step * self.DURATION_PENALTY)
 
         if self.action_set[action] == self.trigger:
-            reward = 10 * self.ETA * self.iou - (self.current_step * self.DURATION_PENALTY)
+            reward = self.ETA_TRIGGER * self.iou - (self.current_step * self.DURATION_PENALTY)
         else:
             self.iou = self.compute_best_iou()
 
         return reward
 
     def create_empty_history(self):
-        flat_history = np.repeat([False], self.HISTORY_LENGTH * self.action_space.n)
-        history = flat_history.reshape((self.HISTORY_LENGTH, self.action_space.n))
+        flat_history = np.repeat([False], self.history_length * self.action_space.n)
+        history = flat_history.reshape((self.history_length, self.action_space.n))
 
         return history.tolist()
 
