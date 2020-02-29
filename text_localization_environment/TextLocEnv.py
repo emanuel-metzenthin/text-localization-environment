@@ -147,14 +147,14 @@ class TextLocEnv(gym.Env):
     def calculate_reward(self, action):
         reward = 0
 
-        if self.has_termination_action:
-            if self.action_set[action] == self.terminate:
-                if self.pct_triggers_used != 1.0:
-                    return -1 * self.ETA_TERMINATION
-                else:
-                    return self.ETA_TERMINATION + (self.current_step * self.DURATION_PENALTY)
+        if self.has_termination_action and self.is_termination(action):
+            pct_triggers_used = self.num_triggers_used / len(self.episode_true_bboxes)
+            if pct_triggers_used != 1.0:
+                return -1 * self.ETA_TERMINATION
+            else:
+                return self.ETA_TERMINATION + (self.current_step * self.DURATION_PENALTY)
 
-        if self.action_set[action] == self.trigger:
+        if self.is_trigger(action):
             reward = self.ETA_TRIGGER * self.iou - (self.current_step * self.DURATION_PENALTY)
         else:
             self.iou = self.compute_best_iou()
@@ -392,6 +392,8 @@ class TextLocEnv(gym.Env):
             return None
         return len(self.episode_true_bboxes)
 
-    @property
-    def pct_triggers_used(self):
-        return (self.num_triggers_used / len(self.episode_true_bboxes))
+    def is_trigger(self, action):
+        return self.action_set[action] == self.trigger
+
+    def is_termination(self, action):
+        return self.action_set[action] == self.terminate
