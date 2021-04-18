@@ -6,6 +6,8 @@ from gym.utils import seeding
 from chainer.backends import cuda
 from PIL import Image, ImageDraw
 from PIL.Image import LANCZOS, MAX_IMAGE_PIXELS
+from torchvision.transforms import Resize, InterpolationMode
+
 from .ImageMasker import ImageMasker
 from .transformer import create_bbox_transformer
 from .utils import scale_bboxes
@@ -86,6 +88,8 @@ class TextLocEnv(gym.Env):
         self.episode_masked_indices = []
         # Number of trigger actions used so far
         self.num_triggers_used = 0
+
+        self.resize = Resize((224, 224), interpolation=InterpolationMode.NEAREST)
 
         self.seed(seed=seed)
         self.reset()
@@ -362,7 +366,7 @@ class TextLocEnv(gym.Env):
 
     def get_warped_bbox_contents(self):
         cropped = self.episode_image.crop(self.bbox)
-        return cropped.resize((224, 224), LANCZOS)
+        return self.resize(cropped)
 
     def compute_state(self):
         warped = self.get_warped_bbox_contents()
