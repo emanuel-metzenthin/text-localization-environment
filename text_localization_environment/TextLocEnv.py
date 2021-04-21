@@ -7,7 +7,7 @@ from chainer.backends import cuda
 from PIL import Image, ImageDraw
 from PIL.Image import LANCZOS, MAX_IMAGE_PIXELS
 from torchvision.transforms import Resize, InterpolationMode
-
+from math import copysign
 from .ImageMasker import ImageMasker
 from .transformer import create_bbox_transformer
 from .utils import scale_bboxes
@@ -29,7 +29,7 @@ class TextLocEnv(gym.Env):
     def __init__(self, image_paths, true_bboxes,
         playout_episode=False, premasking=True, mode='train',
         max_steps_per_image=200, seed=None, bbox_scaling=0.125,
-        bbox_transformer='base', has_termination_action=True,
+        bbox_transformer='base', has_termination_action=True, has_intermediate_reward=False,
         ior_marker_type='cross', history_length=10
     ):
         """
@@ -51,6 +51,8 @@ class TextLocEnv(gym.Env):
         self.max_steps_per_image = max_steps_per_image
         # Whether a termination action should be provided in the action set
         self.has_termination_action = has_termination_action
+        # Whether a reward will be given for each non-trigger action based on the best gt iou
+        self.has_intermediate_reward = has_intermediate_reward
         # The type of IoR marker to be used when masking trigger regions
         self.ior_marker_type = ior_marker_type
         # Length of history in state & agent model
@@ -128,7 +130,7 @@ class TextLocEnv(gym.Env):
 
         self.action_set[action]()
 
-        reward = self.calculate_reward(action)
+        reward = self.calculate_reward(action, self.has_intermediate_reward)
         self.max_iou = max(self.iou, self.max_iou)
 
         self.history.insert(0, self.to_one_hot(action))
@@ -148,7 +150,7 @@ class TextLocEnv(gym.Env):
 
         return self.state, reward, self.done, {}
 
-    def calculate_reward(self, action):
+    def calculate_reward(self, action, intermediate_reward=False):
         reward = 0
 
         if self.has_termination_action and self.is_termination(action):
@@ -161,7 +163,12 @@ class TextLocEnv(gym.Env):
         if self.is_trigger(action):
             reward = self.ETA_TRIGGER * self.iou - (self.current_step * self.DURATION_PENALTY)
         else:
-            self.iou = self.compute_best_iou()
+            if intermediate_reward:
+                old_iou = self.iou
+                self.iou = self.compute_best_iou()
+                reward = copysign(1, self.iou - old_iou)
+            else:
+                self.iou = self.compute_best_iou()
 
         return reward
 
