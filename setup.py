@@ -6,7 +6,7 @@ requirements = [
       'numpy',
       'Pillow']
 
-setup(name='text_localization_environment',
+setup(name='textlocalizationenvironment',
       version='0.1.0',
       install_requires=requirements
 )
