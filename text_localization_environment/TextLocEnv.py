@@ -63,7 +63,7 @@ class TextLocEnv(gym.Env):
         self.action_space = spaces.Discrete(len(self.action_set))
         # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
         self.observation_space = spaces.Tuple([
-            spaces.Box(low=0, high=256, shape=(224, 224, 3)),
+            spaces.Box(low=0, high=256, shape=(84, 84, 3)),
             spaces.Box(low=0, high=1, shape=(self.history_length, len(self.action_set)))
         ])
 
@@ -91,7 +91,10 @@ class TextLocEnv(gym.Env):
         # Number of trigger actions used so far
         self.num_triggers_used = 0
 
-        self.resize = Resize((224, 224), interpolation=InterpolationMode.NEAREST)
+        # For rendering
+        self.viewer = None
+
+        self.resize = Resize((84, 84), interpolation=InterpolationMode.NEAREST)
 
         self.seed(seed=seed)
         self.reset()
@@ -348,13 +351,20 @@ class TextLocEnv(gym.Env):
             image = self.episode_image_with_true_bboxes
 
         if mode == 'human':
+            # copy = image.copy()
+            # draw = ImageDraw.Draw(copy)
+            # draw.rectangle(self.bbox.tolist(), outline=(255, 255, 255))
+            # if return_as_file:
+            #     return copy
+            # copy.show()
+            # copy.close()
+            from gym.envs.classic_control import rendering
+            if self.viewer is None:
+                self.viewer = rendering.SimpleImageViewer()
             copy = image.copy()
-            draw = ImageDraw.Draw(copy)
-            draw.rectangle(self.bbox.tolist(), outline=(255, 255, 255))
-            if return_as_file:
-                return copy
-            copy.show()
+            self.viewer.imshow(np.array(copy))
             copy.close()
+            return self.viewer.isopen
         elif mode is 'box':
             # Renders what the agent currently sees
             # i.e. the section of the image covered by the agent's current window (warped to standard size)
