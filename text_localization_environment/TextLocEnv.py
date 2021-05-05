@@ -362,6 +362,8 @@ class TextLocEnv(gym.Env):
             if self.viewer is None:
                 self.viewer = rendering.SimpleImageViewer()
             copy = image.copy()
+            draw = ImageDraw.Draw(copy)
+            draw.rectangle(self.bbox.tolist(), outline=(255, 0, 0), width=2)
             self.viewer.imshow(np.array(copy))
             copy.close()
             return self.viewer.isopen
