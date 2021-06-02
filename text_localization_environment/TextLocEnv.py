@@ -11,6 +11,8 @@ from math import copysign
 from .ImageMasker import ImageMasker
 from .transformer import create_bbox_transformer
 from .utils import scale_bboxes
+import torch
+from torchvision.transforms import ToTensor
 
 
 class TextLocEnv(gym.Env):
@@ -30,7 +32,7 @@ class TextLocEnv(gym.Env):
         playout_episode=False, premasking=True, mode='train',
         max_steps_per_image=200, seed=None, bbox_scaling=0.125,
         bbox_transformer='base', has_termination_action=True, has_intermediate_reward=False,
-        ior_marker_type='cross', history_length=10
+        ior_marker_type='cross', history_length=10, assessor_model=None
     ):
         """
         :param image_paths: The paths to the individual images
@@ -93,6 +95,10 @@ class TextLocEnv(gym.Env):
 
         # For rendering
         self.viewer = None
+        
+        # Assessor (weak-supervision)
+        self.assessor = assessor_model
+        self.train_assessor = True
 
         self.resize = Resize((224, 224), interpolation=InterpolationMode.NEAREST)
 
@@ -150,6 +156,9 @@ class TextLocEnv(gym.Env):
         # Prevents the agent from running into an infinite loop
         if self.max_steps_per_image != -1 and self.current_step >= self.max_steps_per_image:
             self.done = True
+
+        if self.assessor and self.train_assessor:
+            self.assessor.train_one_step()
 
         return self.state, reward, self.done, {}
 
@@ -220,6 +229,13 @@ class TextLocEnv(gym.Env):
         return bboxes_unmasked
 
     def compute_best_iou(self):
+        if self.assessor:
+            self.assessor.eval()
+            bbox_crop = self.get_warped_bbox_contents()
+            bbox_crop = ToTensor()(bbox_crop).unsqueeze(0)
+
+            return self.assessor(bbox_crop).item()
+
         max_iou = 0
 
         # Only consider boxes that have not been masked yet
