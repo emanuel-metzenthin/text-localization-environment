@@ -24,6 +24,8 @@ class TextLocEnv(gym.Env):
     ETA_TERMINATION = 10.0
     # Penalty substracted from trigger reward
     DURATION_PENALTY = 0.03
+    # Intermediate reward constant
+    INTERMEDIATE_REWARD = 0.1
 
     # Probability for masking a bounding box in a new observation (applied during premasking)
     P_MASK = 0.5
@@ -178,7 +180,7 @@ class TextLocEnv(gym.Env):
             if intermediate_reward:
                 old_iou = self.iou
                 self.iou = self.compute_best_iou()
-                reward = copysign(1, self.iou - old_iou)
+                reward = copysign(1, self.iou - old_iou) * INTERMEDIATE_REWARD
             else:
                 self.iou = self.compute_best_iou()
 
