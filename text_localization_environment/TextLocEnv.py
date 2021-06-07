@@ -180,7 +180,7 @@ class TextLocEnv(gym.Env):
             if intermediate_reward:
                 old_iou = self.iou
                 self.iou = self.compute_best_iou()
-                reward = copysign(1, self.iou - old_iou) * INTERMEDIATE_REWARD
+                reward = copysign(1, self.iou - old_iou) * self.INTERMEDIATE_REWARD
             else:
                 self.iou = self.compute_best_iou()
 
