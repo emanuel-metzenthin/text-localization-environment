@@ -34,7 +34,7 @@ class TextLocEnv(gym.Env):
         playout_episode=False, premasking=True, mode='train',
         max_steps_per_image=200, seed=None, bbox_scaling=0.125,
         bbox_transformer='base', has_termination_action=True, has_intermediate_reward=False,
-        ior_marker_type='cross', history_length=10, assessor_model=None
+        ior_marker_type='cross', history_length=10, assessor_model=None, train_assessor=False
     ):
         """
         :param image_paths: The paths to the individual images
@@ -100,7 +100,7 @@ class TextLocEnv(gym.Env):
         
         # Assessor (weak-supervision)
         self.assessor = assessor_model
-        self.train_assessor = True
+        self.train_assessor = train_assessor
 
         self.resize = Resize((224, 224), interpolation=InterpolationMode.NEAREST)
 
