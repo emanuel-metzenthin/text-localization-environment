@@ -330,8 +330,8 @@ class TextLocEnv(gym.Env):
                 self.bbox_scaling
             )
 
-        if self.episode_image.mode != 'RGB':
-            self.episode_image = self.episode_image.convert('RGB')
+        if self.episode_image.mode != 'RGBA':
+            self.episode_image = self.episode_image.convert('RGBA')
 
         self.episode_masked_indices = []
 
