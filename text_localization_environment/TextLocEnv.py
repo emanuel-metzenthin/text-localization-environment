@@ -395,10 +395,10 @@ class TextLocEnv(gym.Env):
             super(TextLocEnv, self).render(mode=mode)
 
     def get_warped_bbox_contents(self):
-        # cropped = self.episode_image.crop(self.bbox)
-        box = list(map(int, self.bbox))
-        cropped = Image.new('RGB', (box[2] - box[0], box[3] - box[1]), (255, 255, 255))
-        cropped.paste(self.episode_image, (-box[0], -box[1]))
+        cropped = self.episode_image.crop(self.bbox)
+        # box = list(map(int, self.bbox))
+        # cropped = Image.new('RGB', (box[2] - box[0], box[3] - box[1]), (255, 255, 255))
+        # cropped.paste(self.episode_image, (-box[0], -box[1]))
         return self.resize(cropped)
 
     def compute_state(self):
