@@ -403,7 +403,7 @@ class TextLocEnv(gym.Env):
 
     def compute_state(self):
         warped = self.get_warped_bbox_contents()
-        return (np.array(warped, dtype=np.float32), np.array(self.history))
+        return (np.array(warped.convert("RGB"), dtype=np.float32), np.array(self.history))
 
     def to_one_hot(self, action):
         line = np.zeros(self.action_space.n, np.bool)
