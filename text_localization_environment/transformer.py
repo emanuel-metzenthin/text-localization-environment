@@ -36,9 +36,7 @@ class BBoxTransformer(ABC):
 
         new_box = self.bbox + delta
 
-        if box_area(new_box) < MAX_IMAGE_PIXELS \
-                and new_box[0] >= 0 and new_box[1] >= 0 \
-                and new_box[2] < 224 and new_box[3] < 224:
+        if box_area(new_box) < MAX_IMAGE_PIXELS:
             self.bbox = new_box
 
 

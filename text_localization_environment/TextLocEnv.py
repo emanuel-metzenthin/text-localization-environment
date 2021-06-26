@@ -175,14 +175,12 @@ class TextLocEnv(gym.Env):
                 return self.ETA_TERMINATION + (self.current_step * self.DURATION_PENALTY)
 
         if self.is_trigger(action):
+            self.iou = self.compute_best_iou()
             reward = self.ETA_TRIGGER * self.iou - (self.current_step * self.DURATION_PENALTY)
-        else:
-            if intermediate_reward:
-                old_iou = self.iou
-                self.iou = self.compute_best_iou()
-                reward = copysign(1, self.iou - old_iou) * self.INTERMEDIATE_REWARD
-            else:
-                self.iou = self.compute_best_iou()
+        elif intermediate_reward:
+            old_iou = self.iou
+            self.iou = self.compute_best_iou()
+            reward = copysign(1, self.iou - old_iou) * self.INTERMEDIATE_REWARD
 
         return reward
 
@@ -397,7 +395,10 @@ class TextLocEnv(gym.Env):
             super(TextLocEnv, self).render(mode=mode)
 
     def get_warped_bbox_contents(self):
-        cropped = self.episode_image.crop(self.bbox)
+        # cropped = self.episode_image.crop(self.bbox)
+        box = list(map(int, self.bbox))
+        cropped = Image.new('RGB', (box[2] - box[0], box[3] - box[1]), (255, 255, 255))
+        cropped.paste(self.episode_image, (-box[0], -box[1]))
         return self.resize(cropped)
 
     def compute_state(self):
