@@ -34,7 +34,7 @@ class TextLocEnv(gym.Env):
         playout_episode=False, premasking=True, mode='train',
         max_steps_per_image=200, seed=None, bbox_scaling=0.125,
         bbox_transformer='base', has_termination_action=True, has_intermediate_reward=False,
-        ior_marker_type='cross', history_length=10, assessor_model=None, train_assessor=False
+        ior_marker_type='cross', history_length=10, assessor_model=None, train_assessor=False, grayscale=False
     ):
         """
         :param image_paths: The paths to the individual images
@@ -61,6 +61,8 @@ class TextLocEnv(gym.Env):
         self.ior_marker_type = ior_marker_type
         # Length of history in state & agent model
         self.history_length = history_length
+        # Whether to return grayscale, 1-channel environment images
+        self.grayscale = grayscale
 
         # Initialize action space
         self.bbox_transformer = create_bbox_transformer(bbox_transformer)
@@ -368,6 +370,7 @@ class TextLocEnv(gym.Env):
 
         if mode == 'human':
             copy = image.copy()
+            copy = copy.convert("RGB")
             draw = ImageDraw.Draw(copy)
             draw.rectangle(self.bbox.tolist(), outline=(255, 0, 0), width=2)
             if return_as_file:
@@ -403,7 +406,11 @@ class TextLocEnv(gym.Env):
 
     def compute_state(self):
         warped = self.get_warped_bbox_contents()
-        return (np.array(warped.convert("RGB"), dtype=np.float32), np.array(self.history))
+
+        if self.grayscale:
+            return (np.array(warped.convert("L"), dtype=np.float32), np.array(self.history))
+        else:
+            return (np.array(warped.convert("RGB"), dtype=np.float32), np.array(self.history))
 
     def to_one_hot(self, action):
         line = np.zeros(self.action_space.n, np.bool)
