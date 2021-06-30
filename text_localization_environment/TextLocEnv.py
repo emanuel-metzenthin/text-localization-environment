@@ -67,11 +67,18 @@ class TextLocEnv(gym.Env):
         # Initialize action space
         self.bbox_transformer = create_bbox_transformer(bbox_transformer)
         self.action_space = spaces.Discrete(len(self.action_set))
-        # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
-        self.observation_space = spaces.Tuple([
-            spaces.Box(low=0, high=256, shape=(224, 224, 3)),
-            spaces.Box(low=0, high=1, shape=(self.history_length, len(self.action_set)))
-        ])
+        if self.grayscale:
+            # 224*224*1 (RGB image) + 9 * 10 (on-hot-enconded history)
+            self.observation_space = spaces.Tuple([
+                spaces.Box(low=0, high=256, shape=(224, 224, 1)),
+                spaces.Box(low=0, high=1, shape=(self.history_length, len(self.action_set)))
+            ])
+        else:
+            # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
+            self.observation_space = spaces.Tuple([
+                spaces.Box(low=0, high=256, shape=(224, 224, 3)),
+                spaces.Box(low=0, high=1, shape=(self.history_length, len(self.action_set)))
+            ])
 
         # Initialize dataset
         if type(image_paths) is not list:
@@ -408,7 +415,7 @@ class TextLocEnv(gym.Env):
         warped = self.get_warped_bbox_contents()
 
         if self.grayscale:
-            return (np.array(warped.convert("L"), dtype=np.float32), np.array(self.history))
+            return (np.expand_dims(np.array(warped.convert("L"), dtype=np.float32), axis=2), np.array(self.history))
         else:
             return (np.array(warped.convert("RGB"), dtype=np.float32), np.array(self.history))
 
