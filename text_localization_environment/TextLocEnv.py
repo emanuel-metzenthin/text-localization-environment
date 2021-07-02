@@ -34,7 +34,8 @@ class TextLocEnv(gym.Env):
         playout_episode=False, premasking=True, mode='train',
         max_steps_per_image=200, seed=None, bbox_scaling=0.125,
         bbox_transformer='base', has_termination_action=True, has_intermediate_reward=False,
-        ior_marker_type='cross', history_length=10, assessor_model=None, train_assessor=False, grayscale=False
+        ior_marker_type='cross', history_length=10, assessor_model=None, train_assessor=False,
+        grayscale=False, use_cut_area=False
     ):
         """
         :param image_paths: The paths to the individual images
@@ -63,6 +64,8 @@ class TextLocEnv(gym.Env):
         self.history_length = history_length
         # Whether to return grayscale, 1-channel environment images
         self.grayscale = grayscale
+        # Use tightness-aware IoU for reward (incorporating cut gt)
+        self.use_cut_area = use_cut_area
 
         # Initialize action space
         self.bbox_transformer = create_bbox_transformer(bbox_transformer)
@@ -261,6 +264,10 @@ class TextLocEnv(gym.Env):
         area_1 = (self.bbox[2] - self.bbox[0]) * (self.bbox[3] - self.bbox[1])
         area_2 = (other_bbox[2] - other_bbox[0]) * (other_bbox[3] - other_bbox[1])
         union = area_1 + area_2 - intersection
+
+        if self.use_cut_area:
+            cut_area = (area_2 - intersection) / area_2
+            return (intersection - (1 - cut_area)) / union
 
         return intersection / union
 
