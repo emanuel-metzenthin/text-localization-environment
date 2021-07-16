@@ -32,7 +32,7 @@ class TextLocEnv(gym.Env):
 
     def __init__(self, image_paths, true_bboxes,
         playout_episode=False, premasking=True, mode='train',
-        max_steps_per_image=200, seed=None, bbox_scaling=0.125,
+        max_steps_per_image=200, seed=None, bbox_scaling_w=0.05, bbox_scaling_h=0.1,
         bbox_transformer='base', has_termination_action=True, has_intermediate_reward=False,
         ior_marker_type='cross', history_length=10, assessor_model=None, train_assessor=False,
         grayscale=False, use_cut_area=False
@@ -343,7 +343,7 @@ class TextLocEnv(gym.Env):
         if self.bbox_scaling is not None and self.bbox_scaling != 1.0:
             self.episode_true_bboxes = scale_bboxes(
                 self.episode_true_bboxes, self.episode_image.size,
-                self.bbox_scaling
+                self.bbox_scaling_w, self.bbox_scaling_h
             )
 
         if self.episode_image.mode != 'RGBA':

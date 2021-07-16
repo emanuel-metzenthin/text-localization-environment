@@ -14,7 +14,7 @@ def box_area(box):
     width, height = box_size(box)
     return width * height
 
-def scale_bboxes(bboxes, image_size, factor):
+def scale_bboxes(bboxes, image_size, factor_w, factor_h):
     """
     Scales up the bounding boxes by the given factor relative to their size
     while respecting image boundaries.
@@ -28,10 +28,10 @@ def scale_bboxes(bboxes, image_size, factor):
     for bbox in bboxes:
         x0, y0, x1, y1 = bbox
         width, height = box_size(bbox)
-        n_x0 = max(x0 - factor * width, 0)
-        n_y0 = max(y0 - factor * height, 0)
-        n_x1 = min(x1 + factor * width, max_width)
-        n_y1 = min(y1 + factor * height, max_height)
+        n_x0 = max(x0 - factor_w * width, 0)
+        n_y0 = max(y0 - factor_h * height, 0)
+        n_x1 = min(x1 + factor_w * width, max_width)
+        n_y1 = min(y1 + factor_h * height, max_height)
         scaled_bbox = [n_x0, n_y0, n_x1, n_y1]
         scaled_bboxes.append(scaled_bbox)
     return scaled_bboxes
