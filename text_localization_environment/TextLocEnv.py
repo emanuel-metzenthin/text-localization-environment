@@ -47,7 +47,8 @@ class TextLocEnv(gym.Env):
         # Optimizations can be applied during training that are not allowed for testing
         self.mode = mode
         # Factor for scaling all bounding boxes relative to their size
-        self.bbox_scaling = bbox_scaling
+        self.bbox_scaling_w = bbox_scaling_w
+        self.bbox_scaling_h = bbox_scaling_h
         # Whether IoR markers will be placed upfront after loading the image
         self.premasking = premasking
         # Whether an episode terminates after a single trigger or is played out until the end
@@ -340,7 +341,7 @@ class TextLocEnv(gym.Env):
         self.episode_true_bboxes = self.true_bboxes[image_index]
 
         # Scale up/down by bounding boxes relative to their size
-        if self.bbox_scaling is not None and self.bbox_scaling != 1.0:
+        if self.bbox_scaling_w is not None and self.bbox_scaling_w != 1.0:
             self.episode_true_bboxes = scale_bboxes(
                 self.episode_true_bboxes, self.episode_image.size,
                 self.bbox_scaling_w, self.bbox_scaling_h
