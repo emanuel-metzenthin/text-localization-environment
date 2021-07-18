@@ -28,10 +28,10 @@ def scale_bboxes(bboxes, image_size, factor_w, factor_h):
     for bbox in bboxes:
         x0, y0, x1, y1 = bbox
         width, height = box_size(bbox)
-        n_x0 = max(x0 - factor_w * width, 0)
-        n_y0 = max(y0 - factor_h * height, 0)
-        n_x1 = min(x1 + factor_w * width, max_width)
-        n_y1 = min(y1 + factor_h * height, max_height)
+        n_x0 = max(x0 - factor_w * width / 2, 0)
+        n_y0 = max(y0 - factor_h * height / 2, 0)
+        n_x1 = min(x1 + factor_w * width / 2, max_width)
+        n_y1 = min(y1 + factor_h * height / 2, max_height)
         scaled_bbox = [n_x0, n_y0, n_x1, n_y1]
         scaled_bboxes.append(scaled_bbox)
     return scaled_bboxes
