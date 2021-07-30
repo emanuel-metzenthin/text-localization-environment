@@ -268,7 +268,7 @@ class TextLocEnv(gym.Env):
 
         if self.use_cut_area:
             cut_area = (area_2 - intersection) / area_2
-            return (intersection - (1 - cut_area)) / union
+            return (intersection * (1 - cut_area)) / union
 
         return intersection / union
 
