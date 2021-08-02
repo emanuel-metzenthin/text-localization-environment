@@ -190,6 +190,9 @@ class TextLocEnv(gym.Env):
         if self.is_trigger(action):
             self.iou = self.compute_best_iou()
             reward = self.ETA_TRIGGER * self.iou - (self.current_step * self.DURATION_PENALTY)
+
+            if self.playout_episode:
+                self.bbox_transformer.reset(self.episode_image.width, self.episode_image.height)
         elif intermediate_reward:
             old_iou = self.iou
             self.iou = self.compute_best_iou()
@@ -302,8 +305,6 @@ class TextLocEnv(gym.Env):
                 self.episode_masked_indices.append(index)
         else:
             self.create_ior_mark(self.bbox)
-
-        self.bbox_transformer.reset(self.episode_image.width, self.episode_image.height)
 
     def _register_trigger_iou(self):
         self.episode_trigger_ious.append(self.iou)
