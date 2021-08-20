@@ -249,6 +249,7 @@ class TextLocEnv(gym.Env):
             self.assessor.eval()
             bbox_crop = self.get_warped_bbox_contents()
             bbox_crop = ToTensor()(bbox_crop).unsqueeze(0)
+            bbox_crop = bbox_crop.to(self.assessor.device)
 
             return self.assessor(bbox_crop).item()
 
@@ -269,7 +270,7 @@ class TextLocEnv(gym.Env):
         area_2 = (other_bbox[2] - other_bbox[0]) * (other_bbox[3] - other_bbox[1])
         union = area_1 + area_2 - intersection
 
-        if self.use_cut_area:
+        if self.use_cut_area and area_2 > 0:
             cut_area = (area_2 - intersection) / area_2
             return (intersection * (1 - cut_area)) / union
 
@@ -348,8 +349,8 @@ class TextLocEnv(gym.Env):
                 self.bbox_scaling_w, self.bbox_scaling_h
             )
 
-        if self.episode_image.mode != 'RGBA':
-            self.episode_image = self.episode_image.convert('RGBA')
+        if self.episode_image.mode != 'RGB':
+            self.episode_image = self.episode_image.convert('RGB')
 
         self.episode_masked_indices = []
 
@@ -408,7 +409,7 @@ class TextLocEnv(gym.Env):
         elif mode is 'rgb_array':
             copy = image.copy()
             draw = ImageDraw.Draw(copy)
-            draw.rectangle(self.bbox.tolist(), outline=(255, 255, 255))
+            draw.rectangle(self.bbox.tolist(), outline=(255, 0, 0))
             return np.array(copy)
         else:
             super(TextLocEnv, self).render(mode=mode)
