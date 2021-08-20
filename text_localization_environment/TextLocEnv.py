@@ -172,9 +172,6 @@ class TextLocEnv(gym.Env):
         if self.max_steps_per_image != -1 and self.current_step >= self.max_steps_per_image:
             self.done = True
 
-        if self.assessor and self.train_assessor:
-            self.assessor.train_one_step()
-
         return self.state, reward, self.done, {}
 
     def calculate_reward(self, action, intermediate_reward=False):
@@ -376,6 +373,9 @@ class TextLocEnv(gym.Env):
         self.done = False
         self.iou = self.compute_best_iou()
         self.max_iou = self.iou
+
+        if self.assessor and self.train_assessor:
+            self.assessor.train_one_step()
 
         return self.state
 
