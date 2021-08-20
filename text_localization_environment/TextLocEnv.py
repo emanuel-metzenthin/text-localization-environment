@@ -172,9 +172,6 @@ class TextLocEnv(gym.Env):
         if self.max_steps_per_image != -1 and self.current_step >= self.max_steps_per_image:
             self.done = True
 
-        if self.assessor and self.train_assessor:
-            self.assessor.train_one_step()
-
         return self.state, reward, self.done, {}
 
     def calculate_reward(self, action, intermediate_reward=False):
@@ -348,8 +345,8 @@ class TextLocEnv(gym.Env):
                 self.bbox_scaling_w, self.bbox_scaling_h
             )
 
-        if self.episode_image.mode != 'RGBA':
-            self.episode_image = self.episode_image.convert('RGBA')
+        if self.episode_image.mode != 'RGB':
+            self.episode_image = self.episode_image.convert('RGB')
 
         self.episode_masked_indices = []
 
@@ -375,6 +372,9 @@ class TextLocEnv(gym.Env):
         self.done = False
         self.iou = self.compute_best_iou()
         self.max_iou = self.iou
+
+        if self.assessor and self.train_assessor:
+            self.assessor.train_one_step()
 
         return self.state
 
@@ -408,7 +408,7 @@ class TextLocEnv(gym.Env):
         elif mode is 'rgb_array':
             copy = image.copy()
             draw = ImageDraw.Draw(copy)
-            draw.rectangle(self.bbox.tolist(), outline=(255, 255, 255))
+            draw.rectangle(self.bbox.tolist(), outline=(255, 0, 0))
             return np.array(copy)
         else:
             super(TextLocEnv, self).render(mode=mode)
