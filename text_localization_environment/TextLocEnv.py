@@ -252,6 +252,7 @@ class TextLocEnv(gym.Env):
             self.assessor.eval()
             bbox_crop = self.get_warped_bbox_contents()
             bbox_crop = ToTensor()(bbox_crop).unsqueeze(0)
+            bbox_crop = bbox_crop.to(self.assessor.device)
 
             return self.assessor(bbox_crop).item()
 
@@ -272,7 +273,7 @@ class TextLocEnv(gym.Env):
         area_2 = (other_bbox[2] - other_bbox[0]) * (other_bbox[3] - other_bbox[1])
         union = area_1 + area_2 - intersection
 
-        if self.use_cut_area:
+        if self.use_cut_area and area_2 > 0:
             cut_area = (area_2 - intersection) / area_2
             return (intersection * (1 - cut_area)) / union
 
