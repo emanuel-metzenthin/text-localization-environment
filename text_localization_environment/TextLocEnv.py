@@ -165,8 +165,8 @@ class TextLocEnv(gym.Env):
         assert self.action_space.contains(action), "%r (%s) is an invalid action" % (action, type(action))
 
         if self.explore_force_trigger \
-            and self.episode_count < FORCE_TRIGGER_DECAY \
-            and self.iou > FORCE_TRIGGER_THRESHOLD:
+            and self.episode_count < self.FORCE_TRIGGER_DECAY \
+            and self.iou > self.FORCE_TRIGGER_THRESHOLD:
             action = self.trigger
 
         self.current_step += 1
