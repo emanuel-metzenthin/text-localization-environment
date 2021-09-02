@@ -12,6 +12,7 @@ from .ImageMasker import ImageMasker
 from .transformer import create_bbox_transformer
 from .utils import scale_bboxes
 import torch
+import itertools
 from torchvision.transforms import ToTensor
 
 
@@ -29,9 +30,11 @@ class TextLocEnv(gym.Env):
 
     # Probability for masking a bounding box in a new observation (applied during premasking)
     P_MASK = 0.5
+    P_MASK_START = 0.9
+    P_MASK_END = 0.4
 
     def __init__(self, image_paths, true_bboxes,
-        playout_episode=False, premasking=True, mode='train',
+        playout_episode=False, premasking=True, premasking_decay=None, mode='train',
         max_steps_per_image=200, seed=None, bbox_scaling_w=0.05, bbox_scaling_h=0.1,
         bbox_transformer='base', has_termination_action=True, has_intermediate_reward=False,
         ior_marker_type='cross', history_length=10, assessor_model=None, train_assessor=False,
@@ -51,6 +54,8 @@ class TextLocEnv(gym.Env):
         self.bbox_scaling_h = bbox_scaling_h
         # Whether IoR markers will be placed upfront after loading the image
         self.premasking = premasking
+        # Whether premasking probability starts high and is gradually reduced over time
+        self.premasking_decay = premasking_decay
         # Whether an episode terminates after a single trigger or is played out until the end
         self.playout_episode = playout_episode
         # Episodes will be terminated automatically after reaching max steps
@@ -97,6 +102,7 @@ class TextLocEnv(gym.Env):
 
         # Image for the current episode
         self.episode_image = None
+        self.current_image_index = 0
         # Ground truth bounding boxes for the current episode image
         self.episode_true_bboxes = None
         # Predicted bounding boxes for the current episode image
@@ -107,6 +113,8 @@ class TextLocEnv(gym.Env):
         self.episode_masked_indices = []
         # Number of trigger actions used so far
         self.num_triggers_used = 0
+        # Number of episodes rolled out so far
+        self.episode_count = 0
 
         # For rendering
         self.viewer = None
@@ -246,6 +254,7 @@ class TextLocEnv(gym.Env):
             self.assessor.eval()
             bbox_crop = self.get_warped_bbox_contents()
             bbox_crop = ToTensor()(bbox_crop).unsqueeze(0)
+            bbox_crop = bbox_crop.to(self.assessor.device)
 
             return self.assessor(bbox_crop).item()
 
@@ -266,7 +275,7 @@ class TextLocEnv(gym.Env):
         area_2 = (other_bbox[2] - other_bbox[0]) * (other_bbox[3] - other_bbox[1])
         union = area_1 + area_2 - intersection
 
-        if self.use_cut_area:
+        if self.use_cut_area and area_2 > 0:
             cut_area = (area_2 - intersection) / area_2
             return (intersection * (1 - cut_area)) / union
 
@@ -328,13 +337,16 @@ class TextLocEnv(gym.Env):
 
     def reset(self, image_index=None):
         """Reset the environment to its initial state (the bounding box covers the entire image)"""
+        self.episode_count += 1
         self.history = self.create_empty_history()
         if self.episode_image is not None:
             self.episode_image.close()
 
         if image_index is None:
             # Pick random next image if not specified otherwise
-            image_index = self.np_random.randint(len(self.image_paths))
+            # image_index = self.np_random.randint(len(self.image_paths))
+            image_index = (self.current_image_index + 1) % len(self.image_paths)
+        self.current_image_index = image_index
         self.episode_image = Image.open(self.image_paths[image_index])
         self.episode_true_bboxes = self.true_bboxes[image_index]
 
@@ -358,7 +370,9 @@ class TextLocEnv(gym.Env):
                 # -> possibly all texts are masked to train NextImageTrigger
                 mask_rand = self.np_random.random()
                 min_unmasked = 0 if self.has_termination_action else 1
-                if num_unmasked > min_unmasked and mask_rand <= self.P_MASK:
+                masking_prob = self.P_MASK_END + ((self.P_MASK_START - self.P_MASK_END) * (self.episode_count / self.premasking_decay)) if self.premasking_decay \
+                    else self.P_MASK
+                if num_unmasked > min_unmasked and mask_rand <= masking_prob:
                     self.create_ior_mark(box)
                     self.episode_masked_indices.append(idx)
                     num_unmasked -= 1
