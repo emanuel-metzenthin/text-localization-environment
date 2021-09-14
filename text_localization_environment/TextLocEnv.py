@@ -167,7 +167,7 @@ class TextLocEnv(gym.Env):
         if self.explore_force_trigger \
             and self.episode_count < self.FORCE_TRIGGER_DECAY \
             and self.iou > self.FORCE_TRIGGER_THRESHOLD:
-            action = self.trigger
+            action = len(self.action_set) - 1
 
         self.current_step += 1
 
@@ -355,8 +355,8 @@ class TextLocEnv(gym.Env):
 
         if image_index is None:
             # Pick random next image if not specified otherwise
-            # image_index = self.np_random.randint(len(self.image_paths))
-            image_index = (self.current_image_index + 1) % len(self.image_paths)
+            image_index = self.np_random.randint(len(self.image_paths))
+            # image_index = (self.current_image_index + 1) % len(self.image_paths)
         self.current_image_index = image_index
         self.episode_image = Image.open(self.image_paths[image_index])
         self.episode_true_bboxes = self.true_bboxes[image_index]
@@ -368,8 +368,8 @@ class TextLocEnv(gym.Env):
                 self.bbox_scaling_w, self.bbox_scaling_h
             )
 
-        if self.episode_image.mode != 'RGB':
-            self.episode_image = self.episode_image.convert('RGB')
+        if self.episode_image.mode != 'RGBA':
+            self.episode_image = self.episode_image.convert('RGBA')
 
         self.episode_masked_indices = []
 
