@@ -59,6 +59,8 @@ class TextLocEnv(gym.Env):
         self.has_termination_action = has_termination_action
         # Whether a reward will be given for each non-trigger action based on the best gt iou
         self.has_intermediate_reward = has_intermediate_reward
+        # Whether to penalize reverting of the previous action
+        self.has_repeat_penalty = has_repeat_penalty
         # The type of IoR marker to be used when masking trigger regions
         self.ior_marker_type = ior_marker_type
         # Length of history in state & agent model
@@ -107,6 +109,8 @@ class TextLocEnv(gym.Env):
         self.episode_masked_indices = []
         # Number of trigger actions used so far
         self.num_triggers_used = 0
+        # ID of last action taken
+        self.last_action_taken = -1
 
         # For rendering
         self.viewer = None
@@ -194,6 +198,10 @@ class TextLocEnv(gym.Env):
             old_iou = self.iou
             self.iou = self.compute_best_iou()
             reward = copysign(1, self.iou - old_iou) * self.INTERMEDIATE_REWARD
+
+        if self.has_repeat_penalty and self.bbox_transformer.get_opposite_action(action) == self.last_action_taken:
+            reward -= self.REPEAT_PENALTY
+            self.last_action_taken = action
 
         return reward
 
@@ -372,6 +380,7 @@ class TextLocEnv(gym.Env):
         self.done = False
         self.iou = self.compute_best_iou()
         self.max_iou = self.iou
+        self.last_action_taken = -1
 
         if self.assessor and self.train_assessor:
             self.assessor.train_one_step()
