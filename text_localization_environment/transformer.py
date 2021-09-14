@@ -81,6 +81,12 @@ class BaseBBoxTransformer(BBoxTransformer):
     def taller(self):
         self._adjust_bbox(np.array([0.5, 0, -0.5, 0]))
 
+    def get_opposite_action(self, action):
+        if action % 2 == 0:
+            return action + 1
+        else:
+            return action - 1
+
 
 class WangBBoxTransformer(BBoxTransformer):
      # ⍺: factor relative to the current box size that is used for every transformation action
