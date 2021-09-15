@@ -31,6 +31,8 @@ class TextLocEnv(gym.Env):
     FORCE_TRIGGER_THRESHOLD = 0.5
     # For how many episodes to force trigger
     FORCE_TRIGGER_DECAY = 5000
+    # Penalty value for repeat penalty
+    REPEAT_PENALTY = 10
 
     # Probability for masking a bounding box in a new observation (applied during premasking)
     P_MASK = 0.5
@@ -196,6 +198,8 @@ class TextLocEnv(gym.Env):
         if self.max_steps_per_image != -1 and self.current_step >= self.max_steps_per_image:
             self.done = True
 
+        self.last_action_taken = action
+
         return self.state, reward, self.done, {}
 
     def calculate_reward(self, action, intermediate_reward=False):
@@ -221,7 +225,6 @@ class TextLocEnv(gym.Env):
 
         if self.has_repeat_penalty and self.bbox_transformer.get_opposite_action(action) == self.last_action_taken:
             reward -= self.REPEAT_PENALTY
-            self.last_action_taken = action
 
         return reward
 
