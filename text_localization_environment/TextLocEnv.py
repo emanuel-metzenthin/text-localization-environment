@@ -33,6 +33,8 @@ class TextLocEnv(gym.Env):
     FORCE_TRIGGER_DECAY = 5000
     # Penalty value for repeat penalty
     REPEAT_PENALTY = 10
+    # Penalty for cutting off text
+    CUTTING_PENALTY = 5
 
     # Probability for masking a bounding box in a new observation (applied during premasking)
     P_MASK = 0.5
@@ -213,8 +215,14 @@ class TextLocEnv(gym.Env):
                 return self.ETA_TERMINATION + (self.current_step * self.DURATION_PENALTY)
 
         if self.is_trigger(action):
-            self.iou = self.compute_best_iou()
-            reward = self.ETA_TRIGGER * self.iou - (self.current_step * self.DURATION_PENALTY)
+            if self.assessor:
+                self.iou, cutting = self.compute_assessor_iou()
+                if not cutting:
+                    cutting = 0
+                reward = self.ETA_TRIGGER * self.iou - cutting * self.CUTTING_PENALTY - (self.current_step * self.DURATION_PENALTY)
+            else:
+                self.iou = self.compute_best_iou()
+                reward = self.ETA_TRIGGER * self.iou - (self.current_step * self.DURATION_PENALTY)
 
             if self.playout_episode:
                 self.bbox_transformer.reset(self.episode_image.width, self.episode_image.height)
@@ -273,14 +281,6 @@ class TextLocEnv(gym.Env):
         return bboxes_unmasked
 
     def compute_best_iou(self):
-        if self.assessor:
-            self.assessor.eval()
-            bbox_crop = self.get_warped_bbox_contents()
-            bbox_crop = ToTensor()(bbox_crop).unsqueeze(0)
-            bbox_crop = bbox_crop.to(self.assessor.device)
-
-            return self.assessor(bbox_crop).item()
-
         max_iou = 0
 
         # Only consider boxes that have not been masked yet
@@ -289,6 +289,14 @@ class TextLocEnv(gym.Env):
             max_iou = max(max_iou, self.compute_iou(box))
 
         return max_iou
+
+    def compute_assessor_iou(self):
+        self.assessor.eval()
+        bbox_crop = self.get_warped_bbox_contents()
+        bbox_crop = ToTensor()(bbox_crop).unsqueeze(0)
+        bbox_crop = bbox_crop.to(self.assessor.device)
+
+        return self.assessor(bbox_crop).squeeze()
 
     def compute_iou(self, other_bbox):
         """Computes the intersection over union of the argument and the current bounding box."""
