@@ -34,7 +34,7 @@ class TextLocEnv(gym.Env):
     # Penalty value for repeat penalty
     REPEAT_PENALTY = 10
     # Penalty for cutting off text
-    CUTTING_PENALTY = 5
+    CUTTING_PENALTY = 50
 
     # Probability for masking a bounding box in a new observation (applied during premasking)
     P_MASK = 0.5
