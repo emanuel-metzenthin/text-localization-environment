@@ -217,9 +217,6 @@ class TextLocEnv(gym.Env):
         if self.is_trigger(action):
             if self.assessor:
                 self.iou, cutting = self.compute_assessor_iou()
-                self.iou, cutting = self.iou.item(), cutting.item()
-                if not cutting:
-                    cutting = 0
                 reward = self.ETA_TRIGGER * self.iou - cutting * self.CUTTING_PENALTY - (self.current_step * self.DURATION_PENALTY)
             else:
                 self.iou = self.compute_best_iou()
@@ -296,8 +293,12 @@ class TextLocEnv(gym.Env):
         bbox_crop = self.get_warped_bbox_contents()
         bbox_crop = ToTensor()(bbox_crop).unsqueeze(0)
         bbox_crop = bbox_crop.to(self.assessor.device)
-
-        return self.assessor(bbox_crop).squeeze()
+        
+        pred = self.assessor(bbox_crop)
+        if pred.shape[1] == 2:
+            return pred.squeeze()[0].item(), pred.squeeze()[1].item()
+        else:
+            return pred.item(), 0
 
     def compute_iou(self, other_bbox):
         """Computes the intersection over union of the argument and the current bounding box."""
