@@ -291,14 +291,22 @@ class TextLocEnv(gym.Env):
     def compute_assessor_iou(self):
         self.assessor.eval()
         bbox_crop = self.get_warped_bbox_contents()
-        bbox_crop = ToTensor()(bbox_crop).unsqueeze(0)
-        bbox_crop = bbox_crop.to(self.assessor.device)
-        
-        pred = self.assessor(bbox_crop)
-        if pred.shape[1] == 2:
-            return pred.squeeze()[0].item(), pred.squeeze()[1].item()
+
+        if self.assessor.dual_image:
+            surrounding_bbox = scale_bboxes([self.bbox],
+                                            (self.episode_image.width * 1.5, self.episode_image.height * 1.5),
+                                            0.5, 0.5)[0]
+            surrounding_crop = self.get_warped_bbox_contents(surrounding_bbox)
+            surrounding_crop = surrounding_crop.convert("LA")
+            surrounding_crop = ToTensor()(surrounding_crop)
+            bbox_crop = bbox_crop.convert("LA")
+            bbox_crop = ToTensor()(bbox_crop)
+            bbox_crop = torch.vstack((bbox_crop, surrounding_crop)).unsqueeze(0)
         else:
-            return pred.item(), 0
+            bbox_crop = ToTensor()(bbox_crop).unsqueeze(0)
+            bbox_crop = bbox_crop.to(self.assessor.device)
+
+        return self.assessor(bbox_crop).squeeze()
 
     def compute_iou(self, other_bbox):
         """Computes the intersection over union of the argument and the current bounding box."""
@@ -461,11 +469,12 @@ class TextLocEnv(gym.Env):
         else:
             super(TextLocEnv, self).render(mode=mode)
 
-    def get_warped_bbox_contents(self):
-        cropped = self.episode_image.crop(self.bbox)
-        # box = list(map(int, self.bbox))
-        # cropped = Image.new('RGB', (box[2] - box[0], box[3] - box[1]), (255, 255, 255))
-        # cropped.paste(self.episode_image, (-box[0], -box[1]))
+    def get_warped_bbox_contents(self, bbox=None):
+        if bbox:
+            cropped = self.episode_image.crop(bbox)
+        else:
+            cropped = self.episode_image.crop(self.bbox)
+
         return self.resize(cropped)
 
     def compute_state(self):
