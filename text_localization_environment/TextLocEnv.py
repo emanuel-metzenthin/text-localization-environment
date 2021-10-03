@@ -307,7 +307,8 @@ class TextLocEnv(gym.Env):
             bbox_crop = torch.vstack((bbox_crop, surrounding_crop)).unsqueeze(0)
         else:
             bbox_crop = ToTensor()(bbox_crop).unsqueeze(0)
-            bbox_crop = bbox_crop.to(self.assessor.device)
+
+        bbox_crop = bbox_crop.to(self.assessor.device)
 
         return self.assessor(bbox_crop).squeeze()
 
