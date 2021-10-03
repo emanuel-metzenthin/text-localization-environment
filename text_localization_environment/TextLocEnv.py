@@ -300,7 +300,7 @@ class TextLocEnv(gym.Env):
                                             (self.episode_image.width * 1.5, self.episode_image.height * 1.5),
                                             0.5, 0.5)[0]
             surrounding_crop = self.get_warped_bbox_contents(surrounding_bbox)
-            surrounding_crop = surrounding_crop.convert("LA")
+            surrounding_crop = surrounding_crop.convert("L")
             surrounding_crop = ToTensor()(surrounding_crop)
             bbox_crop = bbox_crop.convert("LA")
             bbox_crop = ToTensor()(bbox_crop)
