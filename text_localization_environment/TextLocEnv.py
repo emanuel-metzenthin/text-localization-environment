@@ -217,6 +217,9 @@ class TextLocEnv(gym.Env):
         if self.is_trigger(action):
             if self.assessor:
                 self.iou, cutting = self.compute_assessor_iou()
+                self.iou, cutting = self.iou.item(), cutting.item()
+                if cutting is None:
+                    cutting = 0
                 reward = self.ETA_TRIGGER * self.iou - cutting * self.CUTTING_PENALTY - (self.current_step * self.DURATION_PENALTY)
             else:
                 self.iou = self.compute_best_iou()
