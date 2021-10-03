@@ -307,12 +307,12 @@ class TextLocEnv(gym.Env):
 
         bbox_crop = bbox_crop.to(self.assessor.device)
 
-        pred = self.assessor(bbox_crop).squeeze()
-        if len(pred) == 2:
-            iou, cutting = pred
+        pred = self.assessor(bbox_crop)
+        if pred.shape[1] == 2:
+            iou, cutting = pred.squeeze()
             return iou, cutting
         else:
-            return pred, None
+            return pred.squeeze(), None
 
     def compute_iou(self, other_bbox):
         """Computes the intersection over union of the argument and the current bounding box."""
