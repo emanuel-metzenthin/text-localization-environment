@@ -299,13 +299,14 @@ class TextLocEnv(gym.Env):
 
         if self.assessor.dual_image:
             surrounding_bbox = scale_bboxes([self.bbox],
-                                            (self.episode_image.width * 1.5, self.episode_image.height * 1.5),
-                                            0.5, 0.5)[0]
+                                            (self.episode_image.width * 1.2, self.episode_image.height * 1.2),
+                                            0.2, 0.2)[0]
             surrounding_crop = self.get_warped_bbox_contents(surrounding_bbox)
-            surrounding_crop = surrounding_crop.convert("L")
+            surrounding_crop = surrounding_crop.convert("RGBA")
             surrounding_crop = ToTensor()(surrounding_crop)
-            bbox_crop = bbox_crop.convert("LA")
+            bbox_crop = bbox_crop.convert("RGBA")
             bbox_crop = ToTensor()(bbox_crop)
+            bbox_crop, surrounding_crop = bbox_crop.unsqueeze(0), surrounding_crop.unsqueeze(0)
             bbox_crop = torch.vstack((bbox_crop, surrounding_crop)).unsqueeze(0)
         else:
             bbox_crop = ToTensor()(bbox_crop).unsqueeze(0)
