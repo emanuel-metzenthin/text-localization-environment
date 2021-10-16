@@ -218,7 +218,7 @@ class TextLocEnv(gym.Env):
             if self.assessor:
                 self.iou, cutting = self.compute_assessor_iou()
                 self.iou = self.iou.item()
-                if cutting is None:
+                if cutting is None or self.iou < 0.5:
                     cutting = 0
                 else:
                     cutting = cutting.item()
