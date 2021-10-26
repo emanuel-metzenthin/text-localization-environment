@@ -15,6 +15,7 @@ class ImageMasker:
             'fill': self.fill,
             'cross': self.cross,
             'gauss': self.gauss,
+            'noise': self.noise,
         }
         self.strategy = self.strategies[strategy]
 
@@ -41,6 +42,23 @@ class ImageMasker:
 
         return self.image
 
+    def noise(self):
+        self.bbox = list(map(int, self.bbox))
+        x0, y0 = self.bbox[0], self.bbox[1]
+        x1, y1 = self.bbox[2], self.bbox[3]
+        ym = y0 + (y1 - y0) / 2
+        xm = x0 + (x1 - x0) / 2
+        cross_height = int((y1 - y0) / 2)
+        cross_width = int((x1 - x0) / 2)
+
+        img = np.array(self.image)
+        img[int(ym - cross_height / 2):int(ym + cross_height / 2), x0:x1, :3] = np.random.rand(cross_height, x1-x0, 3) * 255
+        img[y0:y1, int(xm - cross_width / 2):int(xm + cross_width / 2), :3] = np.random.rand(y1-y0, cross_width, 3) * 255
+
+        self.image = Image.fromarray(img)
+
+        return self.image
+
     def _gauss_kernel(self, kernel_size, nsig):
         """Returns a 2D Gaussian kernel."""
 
@@ -51,8 +69,8 @@ class ImageMasker:
 
     def gauss(self, kernel_size=10, nsig=1):
         kernel = self._gauss_kernel(kernel_size, nsig)
-        img = np.array(self.image, dtype=np.int32) / 255.0
-
+        img = np.array(self.image.convert("RGB"), dtype=np.int32) / 255.0
+        self.bbox = list(map(int, self.bbox))
         for y in range(self.bbox[1], self.bbox[3]):
             for x in range(self.bbox[0], self.bbox[2]):
                 acc = np.array([0.0, 0.0, 0.0])
