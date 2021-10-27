@@ -52,14 +52,14 @@ class ImageMasker:
         cross_width = int((x1 - x0) / 2)
 
         img = np.array(self.image)
-        y0_slice = max(0, int(ym - cross_height / 2))
-        y1_slice = min(self.image.height, int(ym + cross_height / 2))
-        x0_slice = max(0, int(xm - cross_height / 2))
-        x1_slice = min(self.image.width, int(xm + cross_height / 2))
-        x0 = max(0, x0)
-        x1 = min(self.image.width, x1)
-        y0 = max(0, y0)
-        y1 = min(self.image.height, y1)
+        y0_slice = max(0, min(self.image.height, int(ym - cross_height / 2)))
+        y1_slice = max(0, min(self.image.height, int(ym + cross_height / 2)))
+        x0_slice = max(0, min(self.image.width, int(xm - cross_height / 2)))
+        x1_slice = max(0, min(self.image.width, int(xm + cross_height / 2)))
+        x0 = max(0, min(self.image.width, x0))
+        x1 = max(0, min(self.image.width, x1))
+        y0 = max(0, min(self.image.height, y0))
+        y1 = max(0, min(self.image.height, y1))
 
         img[y0_slice:y1_slice, x0:x1, :3] = np.random.rand(y1_slice-y0_slice, x1-x0, 3) * 255
         img[y0:y1, x0_slice:x1_slice, :3] = np.random.rand(y1-y0, x1_slice-x0_slice, 3) * 255
