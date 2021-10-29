@@ -16,6 +16,7 @@ class ImageMasker:
             'cross': self.cross,
             'gauss': self.gauss,
             'noise': self.noise,
+            'average': self.average,
         }
         self.strategy = self.strategies[strategy]
 
@@ -41,6 +42,14 @@ class ImageMasker:
         draw.rectangle([(xm - cross_width / 2, y0), (xm + cross_width / 2, y1)], fill=color)
 
         return self.image
+
+    def average(self):
+        radius_x = (self.bbox[2] - self.bbox[0]) * 0.5
+        radius_y = (self.bbox[3] - self.bbox[1]) * 0.5
+        crop = [self.bbox[0] - radius_x, self.bbox[1] - radius_y, self.bbox[2] + radius_x, self.bbox[3] + radius_y]
+        avg_color = np.array(self.image.crop(crop).convert("RGB")).mean(axis=0).mean(axis=0)
+
+        return self.cross(color=tuple(avg_color.astype(int)))
 
     def noise(self):
         self.bbox = list(map(int, self.bbox))
