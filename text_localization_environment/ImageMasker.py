@@ -47,7 +47,10 @@ class ImageMasker:
         radius_x = (self.bbox[2] - self.bbox[0]) * 0.5
         radius_y = (self.bbox[3] - self.bbox[1]) * 0.5
         crop = [self.bbox[0] - radius_x, self.bbox[1] - radius_y, self.bbox[2] + radius_x, self.bbox[3] + radius_y]
-        avg_color = np.array(self.image.crop(crop).convert("RGB")).mean(axis=0).mean(axis=0)
+        if crop[2] - crop[0] > 0 and crop[3] - crop[1] > 0:
+            avg_color = np.array(self.image.crop(crop).convert("RGB")).mean(axis=0).mean(axis=0)
+        else:
+            color = (0, 0, 0)
 
         return self.cross(color=tuple(avg_color.astype(int)))
 
