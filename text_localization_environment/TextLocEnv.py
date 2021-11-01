@@ -92,13 +92,13 @@ class TextLocEnv(gym.Env):
         if self.grayscale:
             # 224*224*1 (RGB image) + 9 * 10 (on-hot-enconded history)
             self.observation_space = spaces.Tuple([
-                spaces.Box(low=0, high=256, shape=(600, 600, 1)),
+                spaces.Box(low=0, high=256, shape=(450, 450, 1)),
                 spaces.Box(low=0, high=1, shape=(self.history_length, len(self.action_set)))
             ])
         else:
             # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
             self.observation_space = spaces.Tuple([
-                spaces.Box(low=0, high=256, shape=(600, 600, 3)),
+                spaces.Box(low=0, high=256, shape=(450, 450, 3)),
                 spaces.Box(low=0, high=1, shape=(self.history_length, len(self.action_set)))
             ])
 
@@ -138,7 +138,7 @@ class TextLocEnv(gym.Env):
         self.assessor = assessor_model
         self.train_assessor = train_assessor
 
-        self.resize = Resize((600, 600), interpolation=InterpolationMode.NEAREST)
+        self.resize = Resize((450, 450), interpolation=InterpolationMode.NEAREST)
 
         self.seed(seed=seed)
         self.reset()
