@@ -215,7 +215,7 @@ class TextLocEnv(gym.Env):
                 return self.ETA_TERMINATION + (self.current_step * self.DURATION_PENALTY)
 
         if self.is_trigger(action):
-            if self.assessor:
+            if self.assessor and not self.episode_true_bboxes:
                 self.iou, cutting = self.compute_assessor_iou()
                 self.iou = self.iou.item()
                 if cutting is None or self.iou < 0.5:
