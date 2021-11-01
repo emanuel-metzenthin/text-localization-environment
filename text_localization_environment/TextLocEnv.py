@@ -98,7 +98,7 @@ class TextLocEnv(gym.Env):
         else:
             # 224*224*3 (RGB image) + 9 * 10 (on-hot-enconded history) = 150618
             self.observation_space = spaces.Tuple([
-                spaces.Box(low=0, high=256, shape=(224, 224, 3)),
+                spaces.Box(low=0, high=256, shape=(600, 600, 3)),
                 spaces.Box(low=0, high=1, shape=(self.history_length, len(self.action_set)))
             ])
 
