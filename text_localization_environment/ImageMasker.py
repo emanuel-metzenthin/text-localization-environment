@@ -17,6 +17,7 @@ class ImageMasker:
             'gauss': self.gauss,
             'noise': self.noise,
             'average': self.average,
+            'alpha': self.alpha,
         }
         self.strategy = self.strategies[strategy]
 
@@ -53,6 +54,9 @@ class ImageMasker:
             avg_color = (0, 0, 0)
 
         return self.cross(color=tuple(avg_color))
+
+    def alpha(self):
+        return self.cross(color=(0, 0, 0, 0))
 
     def noise(self):
         self.bbox = list(map(int, self.bbox))
