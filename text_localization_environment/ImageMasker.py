@@ -28,7 +28,7 @@ class ImageMasker:
         draw.rectangle([p0, p1], fill=color)
         return self.image
 
-    def cross(self, color=(0, 0, 0)):
+    def cross(self, color=0):
         draw = ImageDraw.Draw(self.image)
 
         x0, y0 = self.bbox[0], self.bbox[1]
@@ -45,15 +45,26 @@ class ImageMasker:
         return self.image
 
     def average(self):
-        radius_x = (self.bbox[2] - self.bbox[0]) * 0.5
-        radius_y = (self.bbox[3] - self.bbox[1]) * 0.5
-        crop = [self.bbox[0] - radius_x, self.bbox[1] - radius_y, self.bbox[2] + radius_x, self.bbox[3] + radius_y]
-        if crop[2] - crop[0] > 0 and crop[3] - crop[1] > 0:
-            avg_color = np.array(self.image.crop(crop).convert("RGB")).mean(axis=0).mean(axis=0).astype(int)
-        else:
-            avg_color = (0, 0, 0)
+        radius_x = (self.bbox[2] - self.bbox[0]) * 0.3
+        radius_y = (self.bbox[3] - self.bbox[1]) * 0.3
+        crop_above = [self.bbox[0] - radius_x, self.bbox[1] - radius_y, self.bbox[2] + radius_x, self.bbox[1]]
+        crop_right = [self.bbox[2], self.bbox[1] - radius_y, self.bbox[2] + radius_x, self.bbox[3] + radius_y]
+        crop_bottom = [self.bbox[0] - radius_x, self.bbox[3], self.bbox[2] + radius_x, self.bbox[3] + radius_y]
+        crop_left = [self.bbox[0] - radius_x, self.bbox[1] - radius_y, self.bbox[0], self.bbox[1]]
 
-        return self.cross(color=tuple(avg_color))
+        crops = [crop_above, crop_right, crop_bottom, crop_left]
+        avg_lum = 0
+        avg_color = (0, 0, 0)
+
+        for crop in crops:
+            if crop[2] - crop[0] > 0 and crop[3] - crop[1] > 0:
+                avg_lum += int(np.array(self.image.crop(crop).convert("RGB")).mean(axis=0).mean(axis=0)[0])
+                # avg_color += np.array(self.image.crop(crop).convert("RGB")).mean(axis=0).mean(axis=0).astype(int)
+
+        avg_lum /= 4
+        # avg_color = (avg_color / 4).astype(int)
+
+        return self.cross(color=int(avg_lum))
 
     def alpha(self):
         return self.cross(color=(0, 0, 0, 0))
