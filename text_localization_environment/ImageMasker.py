@@ -58,7 +58,9 @@ class ImageMasker:
 
         for crop in crops:
             if crop[2] - crop[0] > 0 and crop[3] - crop[1] > 0:
-                avg_lum += int(np.array(self.image.crop(crop).convert("RGB")).mean(axis=0).mean(axis=0)[0])
+                crop = np.array(self.image.crop(crop))
+                if crop.size > 1:
+                    avg_lum += int(crop.mean(axis=0).mean(axis=0)[0])
                 # avg_color += np.array(self.image.crop(crop).convert("RGB")).mean(axis=0).mean(axis=0).astype(int)
 
         avg_lum /= 4
