@@ -10,7 +10,7 @@ from torchvision.transforms import Resize, InterpolationMode
 from math import copysign
 from .ImageMasker import ImageMasker
 from .transformer import create_bbox_transformer
-from .utils import scale_bboxes
+from .utils import scale_bboxess
 import torch
 import itertools
 from torchvision.transforms import ToTensor
@@ -27,12 +27,6 @@ class TextLocEnv(gym.Env):
     DURATION_PENALTY = 0.03
     # Intermediate reward constant
     INTERMEDIATE_REWARD = 0.1
-    # IoU threshold for forcing trigger action in exploration
-    FORCE_TRIGGER_THRESHOLD = 0.5
-    # For how many episodes to force trigger
-    FORCE_TRIGGER_DECAY = 5000
-    # Penalty value for repeat penalty
-    REPEAT_PENALTY = 10
     # Penalty for cutting off text
     CUTTING_PENALTY = 50
 
@@ -42,10 +36,9 @@ class TextLocEnv(gym.Env):
     P_MASK_END = 0.4
 
     def __init__(self, image_paths, true_bboxes,
-        playout_episode=False, premasking=True, premasking_decay=None, explore_force_trigger=False, mode='train',
+        playout_episode=False, premasking=True, mode='train',
         max_steps_per_image=200, seed=None, bbox_scaling_w=0.05, bbox_scaling_h=0.1,
         bbox_transformer='base', has_termination_action=True, has_intermediate_reward=False,
-        has_repeat_penalty=False,
         ior_marker_type='cross', history_length=10, assessor_model=None, train_assessor=False,
         grayscale=False, use_cut_area=False
     ):
@@ -63,8 +56,6 @@ class TextLocEnv(gym.Env):
         self.bbox_scaling_h = bbox_scaling_h
         # Whether IoR markers will be placed upfront after loading the image
         self.premasking = premasking
-        # Whether premasking probability starts high and is gradually reduced over time
-        self.premasking_decay = premasking_decay
         # Whether an episode terminates after a single trigger or is played out until the end
         self.playout_episode = playout_episode
         # Episodes will be terminated automatically after reaching max steps
@@ -73,8 +64,6 @@ class TextLocEnv(gym.Env):
         self.has_termination_action = has_termination_action
         # Whether a reward will be given for each non-trigger action based on the best gt iou
         self.has_intermediate_reward = has_intermediate_reward
-        # Whether to penalize reverting of the previous action
-        self.has_repeat_penalty = has_repeat_penalty
         # The type of IoR marker to be used when masking trigger regions
         self.ior_marker_type = ior_marker_type
         # Length of history in state & agent model
@@ -83,8 +72,6 @@ class TextLocEnv(gym.Env):
         self.grayscale = grayscale
         # Use tightness-aware IoU for reward (incorporating cut gt)
         self.use_cut_area = use_cut_area
-        # Force trigger action in exploration when IoU exceeds 0.5
-        self.explore_force_trigger = explore_force_trigger
 
         # Initialize action space
         self.bbox_transformer = create_bbox_transformer(bbox_transformer)
@@ -173,11 +160,6 @@ class TextLocEnv(gym.Env):
             info - any additional info"""
         assert self.action_space.contains(action), "%r (%s) is an invalid action" % (action, type(action))
 
-        if self.explore_force_trigger \
-            and self.episode_count < self.FORCE_TRIGGER_DECAY \
-            and self.iou > self.FORCE_TRIGGER_THRESHOLD:
-            action = len(self.action_set) - 1
-
         self.current_step += 1
 
         self.action_set[action]()
@@ -233,9 +215,6 @@ class TextLocEnv(gym.Env):
             old_iou = self.iou
             self.iou = self.compute_best_iou()
             reward = copysign(1, self.iou - old_iou) * self.INTERMEDIATE_REWARD
-
-        if self.has_repeat_penalty and self.bbox_transformer.get_opposite_action(action) == self.last_action_taken:
-            reward -= self.REPEAT_PENALTY
 
         return reward
 
@@ -423,8 +402,7 @@ class TextLocEnv(gym.Env):
                 # -> possibly all texts are masked to train NextImageTrigger
                 mask_rand = self.np_random.random()
                 min_unmasked = 0 if self.has_termination_action else 1
-                masking_prob = self.P_MASK_END + ((self.P_MASK_START - self.P_MASK_END) * (self.episode_count / self.premasking_decay)) if self.premasking_decay \
-                    else self.P_MASK
+                masking_prob = self.P_MASK
                 if num_unmasked > min_unmasked and mask_rand <= masking_prob:
                     self.create_ior_mark(box)
                     self.episode_masked_indices.append(idx)
